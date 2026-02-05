@@ -207,6 +207,9 @@ In-memory reference implementations are provided under `repositories/memory/` fo
 
 - `receive(token: Token | string): Promise<void>`
 - `getBalances(): Promise<{ [mintUrl: string]: number }>`
+- `getBalanceBreakdown(mintUrl: string): Promise<BalanceBreakdown>`
+- `getBalancesBreakdown(): Promise<BalancesBreakdownByMint>`
+- `getTrustedBalancesBreakdown(): Promise<BalancesBreakdownByMint>`
 - `restore(mintUrl: string): Promise<void>`
 - `sweep(mintUrl: string, bip39seed: Uint8Array): Promise<void>`
 - `decodeToken(tokenString: string, mintUrl?: string): Promise<Token>`
@@ -348,7 +351,7 @@ From the package root:
 - Public APIs including `MintApi`, `WalletApi`, `AuthApi`, `PaymentRequestsApi`,
   `SubscriptionApi`, and the operation-oriented APIs
 - Models, services, operations, and plugin types
-- Types: `CoreProof`, `ProofState`
+- Types: `CoreProof`, `ProofState`, `BalanceBreakdown`, `BalancesBreakdownByMint`
 - Logging: `ConsoleLogger`, `Logger`
 - Helpers: `getEncodedToken`, `getDecodedToken`, `normalizeMintUrl`
 - Infrastructure helpers: `SubscriptionManager`, `WsConnectionManager`,
