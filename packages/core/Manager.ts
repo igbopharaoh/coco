@@ -1,6 +1,7 @@
 import type {
   Repositories,
   MintQuoteRepository,
+  MintOperationRepository,
   SendOperationRepository,
   MeltOperationRepository,
   ReceiveOperationRepository,
@@ -27,6 +28,7 @@ import {
 } from './services';
 import { SendOperationService } from './operations/send/SendOperationService';
 import { MeltOperationService } from './operations/melt/MeltOperationService';
+import { MintOperationService } from './operations/mint/MintOperationService';
 import { ReceiveOperationService } from './operations/receive/ReceiveOperationService';
 import { MintScopedLock } from './operations/MintScopedLock';
 import {
@@ -40,6 +42,8 @@ import {
   SendHandlerProvider,
   DefaultSendHandler,
   P2pkSendHandler,
+  MintBolt11Handler,
+  MintHandlerProvider,
 } from './infra';
 import { EventBus, type CoreEvents } from './events';
 import { type Logger, NullLogger } from './logging';
@@ -176,6 +180,9 @@ export async function initializeCoco(config: CocoConfig): Promise<Manager> {
   // Recover any pending receive operations from previous session
   await coco.ops.receive.recovery.run();
 
+  // Recover any pending mint operations from previous session
+  await coco.recoverPendingMintOperations();
+
   return coco;
 }
 
@@ -225,6 +232,8 @@ export class Manager {
   private sendOperationRepository: SendOperationRepository;
   private meltOperationService: MeltOperationService;
   private meltOperationRepository: MeltOperationRepository;
+  private mintOperationService: MintOperationService;
+  private mintOperationRepository: MintOperationRepository;
   private receiveOperationService: ReceiveOperationService;
   private receiveOperationRepository: ReceiveOperationRepository;
   private proofRepository: Repositories['proofRepository'];
@@ -285,6 +294,8 @@ export class Manager {
     this.meltOperationRepository = core.meltOperationRepository;
     this.authSessionService = core.authSessionService;
     this.authService = core.authService;
+    this.mintOperationService = core.mintOperationService;
+    this.mintOperationRepository = core.mintOperationRepository;
     this.proofRepository = repositories.proofRepository;
     const apis = this.buildApis();
     this.mint = apis.mint;
@@ -331,6 +342,7 @@ export class Manager {
       receiveOperationService: this.receiveOperationService,
       paymentRequestService: this.paymentRequestService,
       meltOperationService: this.meltOperationService,
+      mintOperationService: this.mintOperationService,
       tokenService: this.tokenService,
       subscriptions: this.subscriptions,
       eventBus: this.eventBus,
@@ -380,6 +392,7 @@ export class Manager {
       mintQuoteService: this.mintQuoteService,
       meltQuoteService: this.meltQuoteService,
       meltOperationService: this.meltOperationService,
+      mintOperationService: this.mintOperationService,
       historyService: this.historyService,
       transactionService: this.transactionService,
       sendOperationService: this.sendOperationService,
@@ -508,6 +521,10 @@ export class Manager {
     await this.ops.receive.recovery.run();
   }
 
+  async recoverPendingMintOperations(): Promise<void> {
+    await this.mintOperationService.recoverPendingOperations();
+  }
+
   async pauseSubscriptions(): Promise<void> {
     if (this.subscriptionsPaused) {
       this.logger.debug('Subscriptions already paused');
@@ -630,6 +647,8 @@ export class Manager {
     meltOperationRepository: MeltOperationRepository;
     authSessionService: AuthSessionService;
     authService: AuthService;
+    mintOperationService: MintOperationService;
+    mintOperationRepository: MintOperationRepository;
   } {
     const mintLogger = this.getChildLogger('MintService');
     const walletLogger = this.getChildLogger('WalletService');
@@ -683,17 +702,6 @@ export class Manager {
       this.mintRequestProvider,
       walletRestoreLogger,
     );
-
-    const quotesService = new MintQuoteService(
-      repositories.mintQuoteRepository,
-      mintService,
-      walletService,
-      proofService,
-      this.eventBus,
-      mintQuoteLogger,
-    );
-    const mintQuoteService = quotesService;
-    const mintQuoteRepository = repositories.mintQuoteRepository;
 
     const meltQuoteService = new MeltQuoteService(
       mintService,
@@ -773,6 +781,36 @@ export class Manager {
     );
     const meltOperationRepository = repositories.meltOperationRepository;
 
+    const mintOperationLogger = this.getChildLogger('MintOperationService');
+    const mintHandlerProvider = new MintHandlerProvider({
+      bolt11: new MintBolt11Handler(),
+    });
+    const mintOperationService = new MintOperationService(
+      mintHandlerProvider,
+      repositories.mintOperationRepository,
+      repositories.mintQuoteRepository,
+      repositories.proofRepository,
+      proofService,
+      mintService,
+      walletService,
+      this.mintAdapter,
+      this.eventBus,
+      mintOperationLogger,
+      mintScopedLock,
+    );
+    const mintOperationRepository = repositories.mintOperationRepository;
+
+    const quotesService = new MintQuoteService(
+      repositories.mintQuoteRepository,
+      mintService,
+      walletService,
+      mintOperationService,
+      this.eventBus,
+      mintQuoteLogger,
+    );
+    const mintQuoteService = quotesService;
+    const mintQuoteRepository = repositories.mintQuoteRepository;
+
     const paymentRequestLogger = this.getChildLogger('PaymentRequestService');
     const paymentRequestService = new PaymentRequestService(
       sendOperationService,
@@ -813,6 +851,8 @@ export class Manager {
       meltOperationRepository,
       authSessionService,
       authService,
+      mintOperationService,
+      mintOperationRepository,
     };
   }
 
@@ -846,6 +886,7 @@ export class Manager {
     const quotes = new QuotesApi(
       this.mintQuoteService,
       this.meltQuoteService,
+      this.mintOperationService,
       this.meltOperationService,
     );
     const keyring = new KeyRingApi(this.keyRingService);
