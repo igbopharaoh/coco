@@ -11,6 +11,7 @@ import type {
 import type {
   MintExecutionResult,
   MintMethodHandler,
+  PendingMintCheckResult,
   RecoverExecutingResult,
 } from '../../operations/mint/MintMethodHandler';
 import type { MintHandlerProvider } from '../../infra/handlers/mint';
@@ -127,10 +128,16 @@ describe('MintOperationService', () => {
       return { status: 'STAY_EXECUTING' };
     });
 
+    const mockCheckPending = mock(async (): Promise<PendingMintCheckResult> => 'unpaid');
+
+    const mockRollback = mock(async () => {});
+
     handler = {
       prepare: mockPrepare,
       execute: mockExecute,
       recoverExecuting: mockRecoverExecuting,
+      checkPending: mockCheckPending,
+      rollback: mockRollback,
     };
 
     handlerProvider = {

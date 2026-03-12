@@ -58,6 +58,7 @@ import {
   SendOpsApi,
   ReceiveOpsApi,
   MeltOpsApi,
+  MintOpsApi,
 } from './api';
 import { SubscriptionApi } from './api/SubscriptionApi.ts';
 import { PluginHost } from './plugins/PluginHost.ts';
@@ -894,8 +895,9 @@ export class Manager {
     const history = new HistoryApi(this.historyService);
     const send = new SendOpsApi(this.sendOperationService);
     const receive = new ReceiveOpsApi(this.receiveOperationService);
+    const mintOps = new MintOpsApi(this.mintOperationService);
     const melt = new MeltOpsApi(this.meltOperationService);
-    const ops = new OpsApi(send, receive, melt);
+    const ops = new OpsApi(send, receive, mintOps, melt);
     const auth = new AuthApi(this.authService);
     return { mint, wallet, quotes, keyring, subscription, history, ops, auth, send, receive };
   }

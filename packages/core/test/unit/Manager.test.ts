@@ -56,6 +56,7 @@ describe('initializeCoco', () => {
       expect(manager['logger']).toBeInstanceOf(NullLogger);
       expect(manager.ops.send).toBe(manager.send);
       expect(manager.ops.receive).toBe(manager.receive);
+      expect(manager.ops.mint).toBeDefined();
       expect(manager.ops.melt).toBeDefined();
 
       await manager.disableMintQuoteWatcher();

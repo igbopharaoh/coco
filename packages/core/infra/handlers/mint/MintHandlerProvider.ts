@@ -2,7 +2,7 @@ import type {
   MintMethod,
   MintMethodHandler,
   MintMethodHandlerRegistry,
-} from '../../operations/mint/MintMethodHandler';
+} from '../../../operations/mint/MintMethodHandler';
 
 /**
  * Runtime registry for mint method handlers.

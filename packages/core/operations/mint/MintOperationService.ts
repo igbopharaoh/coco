@@ -13,7 +13,12 @@ import type {
   PreparedOrLaterOperation,
 } from './MintOperation';
 import { createMintOperation, getOutputProofSecrets, hasPreparedData } from './MintOperation';
-import type { MintMethod, MintMethodData, MintMethodMeta } from './MintMethodHandler';
+import type {
+  MintMethod,
+  MintMethodData,
+  MintMethodMeta,
+  PendingMintCheckResult,
+} from './MintMethodHandler';
 import type { MintService } from '../../services/MintService';
 import type { WalletService } from '../../services/WalletService';
 import type { ProofService } from '../../services/ProofService';
@@ -28,7 +33,7 @@ import {
   UnknownMintError,
 } from '../../models/Error';
 import type { MintAdapter } from '../../infra';
-import type { MintHandlerProvider } from '../../infra/handlers';
+import type { MintHandlerProvider } from '../../infra/handlers/mint';
 import { MintScopedLock } from '../MintScopedLock';
 import { OperationIdLock } from '../OperationIdLock';
 
@@ -133,7 +138,10 @@ export class MintOperationService {
     return operation;
   }
 
-  async prepare(operationId: string): Promise<PreparedMintOperation> {
+  async prepare(
+    operationId: string,
+    options?: { skipMintLock?: boolean },
+  ): Promise<PreparedMintOperation> {
     const releaseLock = await this.acquireOperationLock(operationId);
     let releaseMintLock: (() => void) | null = null;
     let initOp: InitMintOperation | null = null;
@@ -149,7 +157,9 @@ export class MintOperationService {
       }
 
       initOp = operation as InitMintOperation;
-      releaseMintLock = await this.mintScopedLock.acquire(initOp.mintUrl);
+      if (!options?.skipMintLock) {
+        releaseMintLock = await this.mintScopedLock.acquire(initOp.mintUrl);
+      }
       try {
         const handler = this.handlerProvider.get(initOp.method);
         const { wallet } = await this.walletService.getWalletWithActiveKeysetId(initOp.mintUrl);
@@ -267,71 +277,121 @@ export class MintOperationService {
     }
   }
 
+  async finalize(operationId: string): Promise<FinalizedMintOperation> {
+    const operation = await this.mintOperationRepository.getById(operationId);
+    if (!operation) {
+      throw new Error(`Operation ${operationId} not found`);
+    }
+
+    if (operation.state === 'finalized') {
+      this.logger?.debug('Operation already finalized', { operationId });
+      return operation as FinalizedMintOperation;
+    }
+
+    if (operation.state === 'prepared') {
+      return this.execute(operation.id);
+    }
+
+    if (operation.state === 'executing') {
+      await this.recoverExecutingOperation(operation as ExecutingMintOperation);
+      const updated = await this.mintOperationRepository.getById(operationId);
+      if (updated?.state === 'finalized') {
+        return updated as FinalizedMintOperation;
+      }
+      if (updated?.state === 'rolled_back') {
+        throw new Error(`Operation ${operationId} was rolled back during finalization`);
+      }
+      throw new Error(
+        `Unable to finalize operation ${operationId} in state '${updated?.state ?? 'missing'}'`,
+      );
+    }
+
+    if (operation.state === 'rolled_back') {
+      this.logger?.debug('Operation was rolled back or is rolling back', { operationId });
+      throw new Error(`Cannot finalize operation ${operationId} in state 'rolled_back'`);
+    }
+
+    throw new Error(
+      `Cannot finalize operation ${operationId} in state '${operation.state}'. Expected 'prepared' or 'executing'.`,
+    );
+  }
+
   async redeem(mintUrl: string, quoteId: string): Promise<FinalizedMintOperation | null> {
     const quote = await this.mintQuoteRepository.getMintQuote(mintUrl, quoteId);
     if (!quote) {
       throw new Error(`Mint quote ${quoteId} not found for mint ${mintUrl}`);
     }
 
-    const existing = await this.getOperationByQuote(mintUrl, quoteId);
-    if (existing) {
-      let latestState = existing.state;
+    let releaseMintLock: (() => void) | null = null;
+    try {
+      releaseMintLock = await this.mintScopedLock.acquire(mintUrl);
 
-      if (existing.state === 'finalized') {
-        return existing as FinalizedMintOperation;
-      }
+      let existing = await this.getOperationByQuote(mintUrl, quoteId);
+      if (existing) {
+        let latestState = existing.state;
 
-      if (existing.state === 'init') {
-        const prepared = await this.prepare(existing.id);
-        return this.execute(prepared.id);
-      }
-
-      if (existing.state === 'prepared') {
-        return this.execute(existing.id);
-      }
-
-      if (existing.state === 'executing') {
-        await this.recoverExecutingOperation(existing as ExecutingMintOperation);
-        const recovered = await this.mintOperationRepository.getById(existing.id);
-        if (recovered?.state === 'finalized') {
-          return recovered as FinalizedMintOperation;
+        if (existing.state === 'finalized') {
+          return existing as FinalizedMintOperation;
         }
-        latestState = recovered?.state ?? existing.state;
-        if (recovered && recovered.state !== 'rolled_back') {
-          this.logger?.warn('Mint operation still active after recovery attempt', {
-            operationId: recovered.id,
-            state: recovered.state,
-            mintUrl: recovered.mintUrl,
-            quoteId: recovered.quoteId,
+
+        if (existing.state === 'init') {
+          const prepared = await this.prepare(existing.id, { skipMintLock: true });
+          return this.execute(prepared.id);
+        }
+
+        if (existing.state === 'prepared') {
+          return this.execute(existing.id);
+        }
+
+        if (existing.state === 'executing') {
+          await this.recoverExecutingOperation(existing as ExecutingMintOperation);
+          const recovered = await this.mintOperationRepository.getById(existing.id);
+          if (recovered?.state === 'finalized') {
+            return recovered as FinalizedMintOperation;
+          }
+          latestState = recovered?.state ?? existing.state;
+          if (recovered && recovered.state !== 'rolled_back') {
+            this.logger?.warn('Mint operation still active after recovery attempt', {
+              operationId: recovered.id,
+              state: recovered.state,
+              mintUrl: recovered.mintUrl,
+              quoteId: recovered.quoteId,
+            });
+            throw new NetworkError(
+              `Mint operation ${recovered.id} still executing after recovery attempt`,
+            );
+          }
+        }
+
+        if (latestState !== 'rolled_back') {
+          this.logger?.warn('Mint operation is active; refusing to create a duplicate', {
+            operationId: existing.id,
+            state: latestState,
+            mintUrl: existing.mintUrl,
+            quoteId: existing.quoteId,
           });
           throw new NetworkError(
-            `Mint operation ${recovered.id} still executing after recovery attempt`,
+            `Mint operation ${existing.id} still active after recovery attempt`,
           );
         }
       }
 
-      if (latestState !== 'rolled_back') {
-        this.logger?.warn('Mint operation is active; refusing to create a duplicate', {
-          operationId: existing.id,
-          state: latestState,
-          mintUrl: existing.mintUrl,
-          quoteId: existing.quoteId,
+      if (quote.state === 'ISSUED') {
+        this.logger?.info('Mint quote already in ISSUED state, skipping redeem', {
+          mintUrl,
+          quoteId,
         });
-        throw new NetworkError(`Mint operation ${existing.id} still active after recovery attempt`);
+        return null;
+      }
+
+      const initOp = await this.init(mintUrl, quoteId, 'bolt11', {});
+      const preparedOp = await this.prepare(initOp.id, { skipMintLock: true });
+      return this.execute(preparedOp.id);
+    } finally {
+      if (releaseMintLock) {
+        releaseMintLock();
       }
     }
-
-    if (quote.state === 'ISSUED') {
-      this.logger?.info('Mint quote already in ISSUED state, skipping redeem', {
-        mintUrl,
-        quoteId,
-      });
-      return null;
-    }
-
-    const initOp = await this.init(mintUrl, quoteId, 'bolt11', {});
-    const preparedOp = await this.prepare(initOp.id);
-    return this.execute(preparedOp.id);
   }
 
   async recoverPendingOperations(): Promise<void> {
@@ -371,8 +431,15 @@ export class MintOperationService {
       const preparedOps = await this.mintOperationRepository.getByState('prepared');
       for (const op of preparedOps) {
         try {
-          await this.execute(op.id);
-          preparedCount++;
+          if (await this.mintService.isTrustedMint(op.mintUrl)) {
+            await this.execute(op.id);
+            preparedCount++;
+          } else {
+            this.logger?.warn('Skipping recovery of prepared operation for untrusted mint', {
+              operationId: op.id,
+              mintUrl: op.mintUrl,
+            });
+          }
         } catch (e) {
           this.logger?.warn('Failed to execute stale prepared mint operation', {
             operationId: op.id,
@@ -440,6 +507,15 @@ export class MintOperationService {
 
       if (await this.hasSavedOutputs(executing)) {
         await this.finalizeIssuedOperation(executing);
+        return;
+      }
+
+      if (!(await this.mintService.isTrustedMint(executing.mintUrl))) {
+        this.logger?.warn('Mint is not trusted, skipping recovery of executing mint operation', {
+          operationId: executing.id,
+          mintUrl: executing.mintUrl,
+          quoteId: executing.quoteId,
+        });
         return;
       }
 
@@ -521,6 +597,11 @@ export class MintOperationService {
     } finally {
       releaseLock();
     }
+  }
+
+  async getPreparedOperations(): Promise<PreparedMintOperation[]> {
+    const ops = await this.mintOperationRepository.getByState('prepared');
+    return ops.filter((op): op is PreparedMintOperation => op.state === 'prepared');
   }
 
   private async tryRecoverInitOperation(op: InitMintOperation): Promise<void> {
@@ -661,6 +742,78 @@ export class MintOperationService {
       quoteId: op.quoteId,
       error,
     });
+  }
+
+  async checkPendingOperation(operationId: string): Promise<PendingMintCheckResult> {
+    const op = await this.getOperation(operationId);
+    if (!op || op.state !== 'prepared') {
+      throw new Error(
+        `Cannot check operation ${operationId}: expected state 'prepared' but found '${
+          op?.state ?? 'not found'
+        }'`,
+      );
+    }
+    const handler = this.handlerProvider.get(op.method);
+    const { wallet } = await this.walletService.getWalletWithActiveKeysetId(op.mintUrl);
+
+    const result = await handler.checkPending({
+      ...this.buildDeps(),
+      operation: op as PreparedMintOperation,
+      wallet,
+    });
+
+    return result;
+  }
+
+  async rollback(operationId: string, reason?: string): Promise<void> {
+    const releaseLock = await this.acquireOperationLock(operationId);
+    try {
+      const op = await this.mintOperationRepository.getById(operationId);
+      if (!op) {
+        throw new Error(`Operation ${operationId} not found`);
+      }
+
+      switch (op.state) {
+        case 'init':
+          await this.mintOperationRepository.delete(op.id);
+          this.logger?.info('Rolled back mint init operation', {
+            operationId: op.id,
+            reason: reason ?? 'User cancelled mint operation',
+          });
+          return;
+
+        case 'prepared':
+          {
+            const handler = this.handlerProvider.get(op.method);
+            const { wallet } = await this.walletService.getWalletWithActiveKeysetId(op.mintUrl);
+
+            await handler.rollback(
+              {
+                ...this.buildDeps(),
+                operation: op as PreparedMintOperation,
+                wallet,
+              },
+              reason ?? 'Prepared operation rolled back by user',
+            );
+
+            await this.markAsRolledBack(
+              op as PreparedOrLaterOperation,
+              reason ?? 'Prepared operation rolled back by user',
+            );
+          }
+          break;
+
+        case 'executing':
+        case 'finalized':
+        case 'rolled_back':
+          throw new Error(`Cannot rollback operation ${operationId} in state ${op.state}`);
+
+        default:
+          throw new Error(`Cannot rollback operation ${operationId} in unknown state`);
+      }
+    } finally {
+      releaseLock();
+    }
   }
 
   private async hasSavedOutputs(op: PreparedOrLaterOperation): Promise<boolean> {

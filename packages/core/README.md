@@ -79,7 +79,13 @@ await manager.subscription.awaitMintQuotePaid(
 );
 
 // pay mintQuote.request externally, then:
-await manager.quotes.redeemMintQuote('https://nofees.testnut.cashu.space', mintQuote.quote);
+const preparedMint = await manager.ops.mint.prepare({
+  mintUrl: 'https://nofees.testnut.cashu.space',
+  quoteId: mintQuote.quote,
+  method: 'bolt11',
+  methodData: {},
+});
+await manager.ops.mint.execute(preparedMint.id);
 
 // Check balances
 const balances = await manager.wallet.getBalances();
@@ -243,12 +249,15 @@ In-memory reference implementations are provided under `repositories/memory/` fo
 ### QuotesApi
 
 - `createMintQuote(mintUrl: string, amount: number): Promise<MintQuoteResponse>`
-- `redeemMintQuote(mintUrl: string, quoteId: string): Promise<void>`
 - `prepareMeltBolt11(mintUrl: string, invoice: string): Promise<PreparedMeltOperation>` (deprecated)
 - `executeMelt(operationId: string): Promise<PendingMeltOperation | FinalizedMeltOperation>` (deprecated)
 - `executeMeltByQuote(mintUrl: string, quoteId: string): Promise<PendingMeltOperation | FinalizedMeltOperation | null>` (deprecated)
 - `checkPendingMelt(operationId: string): Promise<PendingCheckResult>` (deprecated)
 - `checkPendingMeltByQuote(mintUrl: string, quoteId: string): Promise<PendingCheckResult | null>` (deprecated)
+- `rollbackMelt(operationId: string, reason?: string): Promise<void>`
+- `getMeltOperation(operationId: string): Promise<MeltOperation | null>`
+- `getPendingMeltOperations(): Promise<MeltOperation[]>`
+- `getPreparedMeltOperations(): Promise<PreparedMeltOperation[]>`
 - `addMintQuote(mintUrl: string, quotes: MintQuoteResponse[]): Promise<{ added: string[]; skipped: string[] }>`
 - `requeuePaidMintQuotes(mintUrl?: string): Promise<{ requeued: string[] }>`
 
