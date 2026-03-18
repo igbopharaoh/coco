@@ -1,5 +1,5 @@
 ---
-'coco-cashu-core': minor
+'coco-cashu-core': patch
 'coco-cashu-expo-sqlite': patch
 'coco-cashu-indexeddb': patch
 'coco-cashu-sqlite-bun': patch
