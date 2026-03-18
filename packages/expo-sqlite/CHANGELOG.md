@@ -1,5 +1,23 @@
 # coco-cashu-expo-sqlite
 
+## 1.1.2-rc.48
+
+### Patch Changes
+
+- db8f3c5: Add NUT-21/22 auth support (CAT/BAT lifecycle)
+- befcdcf: Fix keyset denomination handling so mint key maps are preserved with string keys instead of being
+  coerced to `Number` before persistence. This avoids precision loss for large denomination keys, keeps
+  split logic limited to safe integer values, and adds storage migrations that clear cached keysets so
+  they are re-fetched in the corrected format.
+- 16f3de1: Add changeAmount and effectiveFee to finalized melt operations for accurate settlement reporting, with adapter persistence and legacy compatibility for older melt records.
+- Updated dependencies [db8f3c5]
+- Updated dependencies [3b29203]
+- Updated dependencies [befcdcf]
+- Updated dependencies [16f3de1]
+- Updated dependencies [c9e378c]
+- Updated dependencies [6b2ac82]
+  - coco-cashu-core@1.1.2-rc.48
+
 ## 1.1.2-rc.47
 
 ### Patch Changes

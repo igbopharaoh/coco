@@ -1,5 +1,22 @@
 # coco-cashu-core
 
+## 1.1.2-rc.48
+
+### Patch Changes
+
+- db8f3c5: Add NUT-21/22 auth support (CAT/BAT lifecycle)
+- 3b29203: fix: Made sure processPaymentRequest will return the decoded PR even if no mints have enough balance
+- befcdcf: Fix keyset denomination handling so mint key maps are preserved with string keys instead of being
+  coerced to `Number` before persistence. This avoids precision loss for large denomination keys, keeps
+  split logic limited to safe integer values, and adds storage migrations that clear cached keysets so
+  they are re-fetched in the corrected format.
+- 16f3de1: Add changeAmount and effectiveFee to finalized melt operations for accurate settlement reporting, with adapter persistence and legacy compatibility for older melt records.
+- c9e378c: Add `manager.ops` as the standard operation API for send, receive, and melt flows, including the follow-up docs and typing updates for the default `bolt11` melt path.
+- 6b2ac82: Fix: added mint-level operation locking on proof selection to avoid race conditions in near-parallel execution
+
+  > [!WARNING]
+  > The lock is memory level and does not prevent race conditions in multi-process environments
+
 ## 1.1.2-rc.47
 
 ### Patch Changes
