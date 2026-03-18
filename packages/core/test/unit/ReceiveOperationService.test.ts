@@ -90,6 +90,7 @@ describe('ReceiveOperationService', () => {
         keep: makeOutputData(['out-1']),
         send: [],
       })),
+      setProofState: mock(async () => {}),
       saveProofs: mock(async () => {}),
     } as unknown as ProofService;
 
@@ -267,6 +268,42 @@ describe('ReceiveOperationService', () => {
 
     const stored = await receiveOpRepo.getById(executing.id);
     expect(stored?.state).toBe('finalized');
+  });
+
+  it('uses batched proof lookup when checking whether outputs were already saved', async () => {
+    const proofs = [makeProof('p1')];
+    const initOp = await service.init({ mint: mintUrl, proofs } as Token);
+    const prepared = await service.prepare(initOp);
+    const executing = {
+      ...prepared,
+      state: 'executing',
+      updatedAt: Date.now(),
+    } as ReceiveOperation;
+    await receiveOpRepo.update(executing);
+
+    const outputSecrets = getOutputProofSecrets(executing as PreparedReceiveOperation);
+    const savedProofs: CoreProof[] = outputSecrets.map((secret) => ({
+      id: keysetId,
+      amount: 1,
+      secret,
+      C: `C_${secret}`,
+      mintUrl,
+      state: 'ready',
+      createdByOperationId: executing.id,
+    }));
+    await proofRepo.saveProofs(mintUrl, savedProofs);
+
+    const batchLookup = mock(proofRepo.getProofsBySecrets.bind(proofRepo));
+    proofRepo.getProofsBySecrets = batchLookup;
+    proofRepo.getProofBySecret = mock(async () => {
+      throw new Error('expected batched proof lookup');
+    });
+
+    await service.finalize(executing.id);
+
+    expect(batchLookup).toHaveBeenCalledTimes(1);
+    expect(batchLookup).toHaveBeenCalledWith(mintUrl, outputSecrets);
+    expect((await receiveOpRepo.getById(executing.id))?.state).toBe('finalized');
   });
 
   it('finalize throws when operation is not executing', async () => {

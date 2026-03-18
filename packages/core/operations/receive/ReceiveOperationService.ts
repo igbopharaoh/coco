@@ -674,14 +674,8 @@ export class ReceiveOperationService {
     const outputSecrets = getOutputProofSecrets(op);
     if (outputSecrets.length === 0) return false;
 
-    for (const secret of outputSecrets) {
-      const existing = await this.proofRepository.getProofBySecret(op.mintUrl, secret);
-      if (!existing) {
-        return false;
-      }
-    }
-
-    return true;
+    const existingProofs = await this.proofRepository.getProofsBySecrets(op.mintUrl, outputSecrets);
+    return existingProofs.length === new Set(outputSecrets).size;
   }
 
   /** Extract and normalize mint URL from token, with validation. */
