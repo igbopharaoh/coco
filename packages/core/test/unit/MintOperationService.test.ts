@@ -6,7 +6,7 @@ import { MintOperationService } from '../../operations/mint/MintOperationService
 import type {
   ExecutingMintOperation,
   InitMintOperation,
-  PreparedMintOperation,
+  PendingMintOperation,
 } from '../../operations/mint/MintOperation';
 import type {
   MintExecutionResult,
@@ -24,7 +24,6 @@ import type { ProofService } from '../../services/ProofService';
 import type { MintAdapter } from '../../infra/MintAdapter';
 import { serializeOutputData } from '../../utils';
 import type { CoreProof } from '../../types';
-import { NetworkError } from '../../models/Error';
 
 describe('MintOperationService', () => {
   const mintUrl = 'https://mint.test';
@@ -88,15 +87,15 @@ describe('MintOperationService', () => {
     updatedAt: Date.now(),
   });
 
-  const makePreparedOp = (id: string, secret = 'out-1'): PreparedMintOperation => ({
+  const makePendingOp = (id: string, secret = 'out-1'): PendingMintOperation => ({
     ...makeInitOp(id),
-    state: 'prepared',
+    state: 'pending',
     amount: 10,
     outputData: makeSerializedOutputData(secret),
   });
 
   const makeExecutingOp = (id: string, secret = 'out-1'): ExecutingMintOperation => ({
-    ...makePreparedOp(id, secret),
+    ...makePendingOp(id, secret),
     state: 'executing',
   });
 
@@ -117,7 +116,7 @@ describe('MintOperationService', () => {
     });
 
     const mockPrepare = mock(async ({ operation }: { operation: InitMintOperation }) => {
-      return makePreparedOp(operation.id);
+      return makePendingOp(operation.id);
     });
 
     const mockExecute = mock(async (): Promise<MintExecutionResult> => {
@@ -125,19 +124,16 @@ describe('MintOperationService', () => {
     });
 
     const mockRecoverExecuting = mock(async (): Promise<RecoverExecutingResult> => {
-      return { status: 'STAY_EXECUTING' };
+      return { status: 'PENDING' };
     });
 
     const mockCheckPending = mock(async (): Promise<PendingMintCheckResult> => 'unpaid');
-
-    const mockRollback = mock(async () => {});
 
     handler = {
       prepare: mockPrepare,
       execute: mockExecute,
       recoverExecuting: mockRecoverExecuting,
       checkPending: mockCheckPending,
-      rollback: mockRollback,
     };
 
     handlerProvider = {
@@ -180,7 +176,7 @@ describe('MintOperationService', () => {
     );
   });
 
-  it('redeem runs init -> prepare -> execute and finalizes quote/proofs', async () => {
+  it('redeem runs init -> pending -> execute and finalizes quote/proofs', async () => {
     const redeemedEvents: Array<CoreEvents['mint-quote:redeemed']> = [];
     eventBus.on('mint-quote:redeemed', (event) => {
       redeemedEvents.push(event);
@@ -231,25 +227,26 @@ describe('MintOperationService', () => {
     expect(quote?.state).toBe('ISSUED');
   });
 
-  it('recoverExecutingOperation rolls back when quote was not issued remotely', async () => {
+  it('recoverExecutingOperation returns to pending when quote was not issued remotely', async () => {
     const op = makeExecutingOp('exec-2');
     await operationRepo.create(op);
 
     (handler.recoverExecuting as Mock<any>).mockResolvedValueOnce({
-      status: 'ROLLED_BACK',
+      status: 'PENDING',
       error: 'Recovered: quote not issued remotely',
     });
 
     await service.recoverExecutingOperation(op);
 
     const stored = await operationRepo.getById(op.id);
-    expect(stored?.state).toBe('rolled_back');
+    expect(stored?.state).toBe('pending');
+    expect(stored?.error).toBe('Recovered: quote not issued remotely');
 
     const quote = await mintQuoteRepo.getMintQuote(mintUrl, quoteId);
     expect(quote?.state).toBe('PAID');
   });
 
-  it('recoverExecutingOperation rolls back when proofs are not recoverable', async () => {
+  it('recoverExecutingOperation returns to pending when proofs are not recoverable', async () => {
     const op = makeExecutingOp('exec-3');
     await operationRepo.create(op);
 
@@ -259,44 +256,69 @@ describe('MintOperationService', () => {
     await service.recoverExecutingOperation(op);
 
     const stored = await operationRepo.getById(op.id);
-    expect(stored?.state).toBe('rolled_back');
+    expect(stored?.state).toBe('pending');
   });
 
-  it('redeem throws when executing operation remains unresolved after recovery', async () => {
+  it('redeem retries when executing operation is recovered back to pending', async () => {
     const op = makeExecutingOp('exec-4');
     await operationRepo.create(op);
 
-    (handler.recoverExecuting as Mock<any>).mockResolvedValueOnce({ status: 'STAY_EXECUTING' });
+    (handler.recoverExecuting as Mock<any>).mockResolvedValueOnce({ status: 'PENDING' });
 
-    await expect(service.redeem(mintUrl, quoteId)).rejects.toThrow(NetworkError);
+    const finalized = await service.redeem(mintUrl, quoteId);
+
+    expect(finalized?.state).toBe('finalized');
   });
 
-  it('execute rolls back when already issued proofs cannot be restored', async () => {
-    const preparedOp = makePreparedOp('prepared-2');
-    await operationRepo.create(preparedOp);
+  it('execute finalizes when already issued proofs cannot be restored', async () => {
+    const pendingOp = makePendingOp('pending-2');
+    await operationRepo.create(pendingOp);
 
     (handler.execute as Mock<any>).mockResolvedValueOnce({ status: 'ALREADY_ISSUED' });
     (proofService.recoverProofsFromOutputData as Mock<any>).mockResolvedValueOnce([]);
 
-    await expect(service.execute(preparedOp.id)).rejects.toThrow();
+    const finalized = await service.execute(pendingOp.id);
 
-    const stored = await operationRepo.getById(preparedOp.id);
-    expect(stored?.state).toBe('rolled_back');
+    const stored = await operationRepo.getById(pendingOp.id);
+    const quote = await mintQuoteRepo.getMintQuote(mintUrl, quoteId);
+
+    expect(finalized.state).toBe('finalized');
+    expect(finalized.error).toBe(
+      `Recovered issued quote ${pendingOp.quoteId} but no proofs could be restored`,
+    );
+    expect(stored?.state).toBe('finalized');
+    expect(stored?.error).toBe(
+      `Recovered issued quote ${pendingOp.quoteId} but no proofs could be restored`,
+    );
+    expect(quote?.state).toBe('ISSUED');
   });
 
-  it('recoverPendingOperations cleans init operations and executes stale prepared ones', async () => {
+  it('recoverPendingOperations cleans init operations and reconciles stale pending ones', async () => {
     const initOp = makeInitOp('init-1');
-    const preparedOp = makePreparedOp('prepared-1');
+    const pendingOp = makePendingOp('pending-1');
 
     await operationRepo.create(initOp);
-    await operationRepo.create(preparedOp);
+    await operationRepo.create(pendingOp);
+
+    (handler.checkPending as Mock<any>).mockResolvedValueOnce('paid');
 
     await service.recoverPendingOperations();
 
     const initStored = await operationRepo.getById(initOp.id);
-    const preparedStored = await operationRepo.getById(preparedOp.id);
+    const pendingStored = await operationRepo.getById(pendingOp.id);
 
     expect(initStored).toBeNull();
-    expect(preparedStored?.state).toBe('finalized');
+    expect(pendingStored?.state).toBe('finalized');
+  });
+
+  it('checkPendingOperation leaves unpaid operations pending', async () => {
+    const pendingOp = makePendingOp('pending-3');
+    await operationRepo.create(pendingOp);
+
+    const result = await service.checkPendingOperation(pendingOp.id);
+    const stored = await operationRepo.getById(pendingOp.id);
+
+    expect(result).toBe('unpaid');
+    expect(stored?.state).toBe('pending');
   });
 });

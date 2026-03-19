@@ -5,7 +5,7 @@ import type {
   MintOperation,
   MintOperationService,
   PendingMintCheckResult,
-  PreparedMintOperation,
+  PendingMintOperation,
 } from '@core/operations/mint';
 
 /** Mint methods supported by the default `Manager` wiring. */
@@ -40,8 +40,7 @@ export interface MintDiagnosticsApi {
  * Operation-oriented API for quote-backed mint workflows.
  *
  * This API makes the mint lifecycle explicit so callers can prepare a quote,
- * execute it, inspect its state, and cancel it when allowed by the underlying
- * method.
+ * move it into a durable pending state, execute it, and inspect its progress.
  */
 export class MintOpsApi<TSupported extends MintMethod = DefaultSupportedMintMethod> {
   /** Recovery helpers for mint operations. */
@@ -58,9 +57,9 @@ export class MintOpsApi<TSupported extends MintMethod = DefaultSupportedMintMeth
   constructor(private readonly mintOperationService: MintOperationService) {}
 
   /**
-   * Creates and prepares a mint operation without executing it.
+   * Creates a mint operation and persists its deterministic outputs without executing it.
    */
-  async prepare(input: PrepareMintInput<TSupported>): Promise<PreparedMintOperation> {
+  async prepare(input: PrepareMintInput<TSupported>): Promise<PendingMintOperation> {
     const initOperation = await this.mintOperationService.init(
       input.mintUrl,
       input.quoteId,
@@ -71,13 +70,13 @@ export class MintOpsApi<TSupported extends MintMethod = DefaultSupportedMintMeth
   }
 
   /**
-   * Executes a prepared mint operation.
+   * Executes a pending mint operation.
    */
   async execute(operationOrId: MintOperation | string): Promise<FinalizedMintOperation> {
     const operation = await this.resolveOperation(operationOrId);
-    if (operation.state !== 'prepared') {
+    if (operation.state !== 'pending') {
       throw new Error(
-        `Cannot execute operation in state '${operation.state}'. Expected 'prepared'.`,
+        `Cannot execute operation in state '${operation.state}'. Expected 'pending'.`,
       );
     }
 
@@ -94,23 +93,24 @@ export class MintOpsApi<TSupported extends MintMethod = DefaultSupportedMintMeth
     return this.mintOperationService.getOperationByQuote(mintUrl, quoteId);
   }
 
-  /** Lists mint operations that are prepared and ready to execute or cancel. */
-  async listPrepared(): Promise<PreparedMintOperation[]> {
-    return this.mintOperationService.getPreparedOperations();
-  }
-
-  /** Lists mint operations that are currently in flight. */
-  async listInFlight(): Promise<MintOperation[]> {
+  /** Lists mint operations that are pending redemption or remote settlement. */
+  async listPending(): Promise<PendingMintOperation[]> {
     return this.mintOperationService.getPendingOperations();
   }
 
+  /** Lists mint operations that are pending or currently executing. */
+  async listInFlight(): Promise<MintOperation[]> {
+    return this.mintOperationService.getInFlightOperations();
+  }
+
   /**
-   * Checks the payment state for a prepared mint operation.
+   * Checks the remote quote state for a pending mint operation.
+   * Paid or issued quotes are reconciled immediately.
    */
   async checkPayment(operationId: string): Promise<PendingMintCheckResult> {
     const operation = await this.requireOperation(operationId);
-    if (operation.state !== 'prepared') {
-      throw new Error(`Cannot check payment in state '${operation.state}'. Expected 'prepared'.`);
+    if (operation.state !== 'pending') {
+      throw new Error(`Cannot check payment in state '${operation.state}'. Expected 'pending'.`);
     }
 
     return this.mintOperationService.checkPendingOperation(operation.id);
@@ -121,8 +121,13 @@ export class MintOpsApi<TSupported extends MintMethod = DefaultSupportedMintMeth
    */
   async refresh(operationId: string): Promise<MintOperation> {
     const operation = await this.requireOperation(operationId);
-    if (operation.state === 'prepared') {
+    if (operation.state === 'pending') {
       await this.mintOperationService.checkPendingOperation(operation.id);
+      return this.requireOperation(operationId);
+    }
+
+    if (operation.state === 'executing') {
+      await this.mintOperationService.recoverExecutingOperation(operation);
       return this.requireOperation(operationId);
     }
 
@@ -130,23 +135,9 @@ export class MintOpsApi<TSupported extends MintMethod = DefaultSupportedMintMeth
   }
 
   /**
-   * Cancels a prepared mint operation before execution.
-   */
-  async cancel(operationId: string, reason?: string): Promise<void> {
-    const operation = await this.requireOperation(operationId);
-    if (operation.state !== 'prepared') {
-      throw new Error(
-        `Cannot cancel operation in state '${operation.state}'. Expected 'prepared'.`,
-      );
-    }
-
-    await this.mintOperationService.rollback(operation.id, reason);
-  }
-
-  /**
    * Attempts to finalize a mint operation explicitly.
    *
-   * Prepared operations are executed, executing operations are recovered,
+   * Pending operations are executed, executing operations are recovered,
    * and finalized operations are returned as-is.
    */
   async finalize(operationId: string): Promise<FinalizedMintOperation> {

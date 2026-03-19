@@ -1,22 +1,16 @@
 /**
  * State machine for mint operations:
  *
- * init -> prepared -> executing -> finalized
- *   |        |           |
- *   +--------+-----------+-> rolled_back
+ * init -> pending -> executing -> finalized
+ *          ^         |
+ *          +---------+
  *
  * - init: Operation created, quote validated
- * - prepared: Deterministic outputData persisted
- * - executing: Mint call in progress
- * - finalized: Proofs saved and quote marked ISSUED
- * - rolled_back: Operation failed or was cancelled
+ * - pending: Deterministic outputData persisted; quote may now settle remotely
+ * - executing: Mint or recovery call in progress
+ * - finalized: Quote reached terminal ISSUED state; proofs were saved when recoverable
  */
-export type MintOperationState =
-  | 'init'
-  | 'prepared'
-  | 'executing'
-  | 'finalized'
-  | 'rolled_back';
+export type MintOperationState = 'init' | 'pending' | 'executing' | 'finalized';
 
 import type { SerializedOutputData } from '../../utils';
 import { getSecretsFromSerializedOutputData } from '../../utils';
@@ -31,7 +25,7 @@ interface MintOperationBase extends MintMethodMeta {
   error?: string;
 }
 
-interface PreparedData {
+interface PendingData {
   amount: number;
   outputData: SerializedOutputData;
 }
@@ -40,46 +34,40 @@ export interface InitMintOperation extends MintOperationBase {
   state: 'init';
 }
 
-export interface PreparedMintOperation extends MintOperationBase, PreparedData {
-  state: 'prepared';
+export interface PendingMintOperation extends MintOperationBase, PendingData {
+  state: 'pending';
 }
 
-export interface ExecutingMintOperation extends MintOperationBase, PreparedData {
+export interface ExecutingMintOperation extends MintOperationBase, PendingData {
   state: 'executing';
 }
 
-export interface FinalizedMintOperation extends MintOperationBase, PreparedData {
+export interface FinalizedMintOperation extends MintOperationBase, PendingData {
   state: 'finalized';
-}
-
-export interface RolledBackMintOperation extends MintOperationBase, PreparedData {
-  state: 'rolled_back';
 }
 
 export type MintOperation =
   | InitMintOperation
-  | PreparedMintOperation
+  | PendingMintOperation
   | ExecutingMintOperation
-  | FinalizedMintOperation
-  | RolledBackMintOperation;
+  | FinalizedMintOperation;
 
-export type PreparedOrLaterOperation =
-  | PreparedMintOperation
+export type PendingOrLaterOperation =
+  | PendingMintOperation
   | ExecutingMintOperation
-  | FinalizedMintOperation
-  | RolledBackMintOperation;
+  | FinalizedMintOperation;
 
-export type TerminalMintOperation = FinalizedMintOperation | RolledBackMintOperation;
+export type TerminalMintOperation = FinalizedMintOperation;
 
-export function hasPreparedData(op: MintOperation): op is PreparedOrLaterOperation {
+export function hasPendingData(op: MintOperation): op is PendingOrLaterOperation {
   return op.state !== 'init';
 }
 
 export function isTerminalOperation(op: MintOperation): op is TerminalMintOperation {
-  return op.state === 'finalized' || op.state === 'rolled_back';
+  return op.state === 'finalized';
 }
 
-export function getOutputProofSecrets(op: PreparedOrLaterOperation): string[] {
+export function getOutputProofSecrets(op: PendingOrLaterOperation): string[] {
   const { keepSecrets, sendSecrets } = getSecretsFromSerializedOutputData(op.outputData);
   return [...keepSecrets, ...sendSecrets];
 }

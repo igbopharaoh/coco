@@ -20,9 +20,17 @@ interface MintOperationRow {
   outputDataJson: string | null;
 }
 
-const preparedStates: MintOperationState[] = ['prepared', 'executing', 'finalized', 'rolled_back'];
+const persistedStates = ['pending', 'executing', 'finalized'] as const;
 
-const isPreparedState = (state: MintOperationState) => preparedStates.includes(state);
+const isPersistedState = (state: string): state is (typeof persistedStates)[number] =>
+  persistedStates.includes(state as (typeof persistedStates)[number]);
+
+const normalizeState = (state: string): MintOperationState => {
+  if (state === 'pending' || state === 'executing' || state === 'finalized') {
+    return state;
+  }
+  return 'init';
+};
 
 const rowToOperation = (row: MintOperationRow): MintOperation => {
   const base = {
@@ -36,13 +44,13 @@ const rowToOperation = (row: MintOperationRow): MintOperation => {
     error: row.error ?? undefined,
   };
 
-  if (!isPreparedState(row.state)) {
+  if (!isPersistedState(row.state)) {
     return { ...base, state: 'init' };
   }
 
   return {
     ...base,
-    state: row.state,
+    state: normalizeState(row.state),
     amount: row.amount ?? 0,
     outputData: row.outputDataJson ? JSON.parse(row.outputDataJson) : { keep: [], send: [] },
   } as MintOperation;
@@ -172,7 +180,7 @@ export class SqliteMintOperationRepository implements MintOperationRepository {
 
   async getPending(): Promise<MintOperation[]> {
     const rows = await this.db.all<MintOperationRow>(
-      "SELECT * FROM coco_cashu_mint_operations WHERE state IN ('executing')",
+      "SELECT * FROM coco_cashu_mint_operations WHERE state IN ('pending', 'executing')",
     );
     return rows.map(rowToOperation);
   }

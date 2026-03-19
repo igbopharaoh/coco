@@ -9,7 +9,7 @@ import type { Logger } from '../../logging/Logger';
 import type {
   ExecutingMintOperation,
   InitMintOperation,
-  PreparedMintOperation,
+  PendingMintOperation,
 } from './MintOperation';
 import type { MintAdapter } from '../../infra/MintAdapter';
 
@@ -58,12 +58,7 @@ export interface RecoverExecutingContext<
 }
 
 export interface PendingContext<M extends MintMethod = MintMethod> extends BaseHandlerDeps {
-  operation: PreparedMintOperation & MintMethodMeta<M>;
-  wallet: Wallet;
-}
-
-export interface RollbackContext<M extends MintMethod = MintMethod> extends BaseHandlerDeps {
-  operation: PreparedMintOperation & MintMethodMeta<M>;
+  operation: PendingMintOperation & MintMethodMeta<M>;
   wallet: Wallet;
 }
 
@@ -82,17 +77,15 @@ export type MintExecutionResult =
 
 export type RecoverExecutingResult =
   | { status: 'FINALIZED' }
-  | { status: 'STAY_EXECUTING' }
-  | { status: 'ROLLED_BACK'; error: string };
+  | { status: 'PENDING'; error?: string };
 
 export type PendingMintCheckResult = 'paid' | 'unpaid' | 'issued';
 
 export interface MintMethodHandler<M extends MintMethod = MintMethod> {
-  prepare(ctx: PrepareContext<M>): Promise<PreparedMintOperation & MintMethodMeta<M>>;
+  prepare(ctx: PrepareContext<M>): Promise<PendingMintOperation & MintMethodMeta<M>>;
   execute(ctx: ExecuteContext<M>): Promise<MintExecutionResult>;
   recoverExecuting(ctx: RecoverExecutingContext<M>): Promise<RecoverExecutingResult>;
   checkPending(ctx: PendingContext<M>): Promise<PendingMintCheckResult>;
-  rollback(ctx: RollbackContext<M>, reason?: string): Promise<void>;
 }
 
 export type MintMethodHandlerRegistry = Record<MintMethod, MintMethodHandler<MintMethod>>;

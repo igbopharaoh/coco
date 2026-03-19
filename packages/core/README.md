@@ -79,13 +79,13 @@ await manager.subscription.awaitMintQuotePaid(
 );
 
 // pay mintQuote.request externally, then:
-const preparedMint = await manager.ops.mint.prepare({
+const pendingMint = await manager.ops.mint.prepare({
   mintUrl: 'https://nofees.testnut.cashu.space',
   quoteId: mintQuote.quote,
   method: 'bolt11',
   methodData: {},
 });
-await manager.ops.mint.execute(preparedMint.id);
+await manager.ops.mint.execute(pendingMint.id);
 
 // Check balances
 const balances = await manager.wallet.getBalances();
@@ -224,6 +224,18 @@ In-memory reference implementations are provided under `repositories/memory/` fo
 - `melt.recovery.run(): Promise<void>`
 - `melt.recovery.inProgress(): boolean`
 - `melt.diagnostics.isLocked(operationId): boolean`
+- `mint.prepare({ mintUrl, quoteId, method: 'bolt11', methodData: {} }): Promise<PendingMintOperation>`
+- `mint.execute(operationOrId): Promise<FinalizedMintOperation>`
+- `mint.get(operationId): Promise<MintOperation | null>`
+- `mint.getByQuote(mintUrl, quoteId): Promise<MintOperation | null>`
+- `mint.listPending(): Promise<PendingMintOperation[]>`
+- `mint.listInFlight(): Promise<MintOperation[]>`
+- `mint.checkPayment(operationId): Promise<PendingMintCheckResult>`
+- `mint.refresh(operationId): Promise<MintOperation>`
+- `mint.finalize(operationId): Promise<FinalizedMintOperation>`
+- `mint.recovery.run(): Promise<void>`
+- `mint.recovery.inProgress(): boolean`
+- `mint.diagnostics.isLocked(operationId): boolean`
 
 ### MintApi
 

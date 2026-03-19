@@ -4,12 +4,11 @@ import type {
   PrepareContext,
   MintMethodHandler,
   MintExecutionResult,
-  PreparedMintOperation,
+  PendingMintOperation,
   RecoverExecutingResult,
   RecoverExecutingContext,
   PendingContext,
   PendingMintCheckResult,
-  RollbackContext,
 } from '@core/operations/mint';
 import { MintOperationError } from '../../../models/Error';
 import { deserializeOutputData, mapProofToCoreProof, serializeOutputData } from '@core/utils';
@@ -18,7 +17,7 @@ import type { MintQuoteBolt11Response } from '@cashu/cashu-ts';
 export class MintBolt11Handler implements MintMethodHandler<'bolt11'> {
   async prepare(
     ctx: PrepareContext<'bolt11'>,
-  ): Promise<PreparedMintOperation & MintMethodMeta<'bolt11'>> {
+  ): Promise<PendingMintOperation & MintMethodMeta<'bolt11'>> {
     const quote = await ctx.mintQuoteRepository.getMintQuote(
       ctx.operation.mintUrl,
       ctx.operation.quoteId,
@@ -48,7 +47,7 @@ export class MintBolt11Handler implements MintMethodHandler<'bolt11'> {
       ...ctx.operation,
       amount: quote.amount,
       outputData: serializeOutputData({ keep: outputData.keep, send: [] }),
-      state: 'prepared',
+      state: 'pending',
     };
   }
 
@@ -86,7 +85,10 @@ export class MintBolt11Handler implements MintMethodHandler<'bolt11'> {
         quoteId,
         error: error instanceof Error ? error.message : String(error),
       });
-      return { status: 'STAY_EXECUTING' };
+      return {
+        status: 'PENDING',
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
 
     if (remoteQuote.state === 'PAID') {
@@ -116,25 +118,31 @@ export class MintBolt11Handler implements MintMethodHandler<'bolt11'> {
             // Quote already issued; fall through to proof recovery
           } else if (err.code === 20007) {
             return {
-              status: 'ROLLED_BACK',
+              status: 'PENDING',
               error: `Recovered: quote ${quoteId} expired while executing mint`,
             };
           } else {
-            return { status: 'STAY_EXECUTING' };
+            return {
+              status: 'PENDING',
+              error: err.message,
+            };
           }
         } else {
-          return { status: 'STAY_EXECUTING' };
+          return {
+            status: 'PENDING',
+            error: err instanceof Error ? err.message : String(err),
+          };
         }
       }
     } else if (remoteQuote.state === 'UNPAID') {
       return {
-        status: 'ROLLED_BACK',
-        error: `Recovered: quote ${quoteId} is UNPAID during mint execution`,
+        status: 'PENDING',
+        error: `Recovered: quote ${quoteId} is still UNPAID`,
       };
     } else if (remoteQuote.state !== 'ISSUED') {
       return {
-        status: 'ROLLED_BACK',
-        error: `Recovered: quote ${quoteId} not issued remotely (${remoteQuote.state})`,
+        status: 'PENDING',
+        error: `Recovered: quote ${quoteId} remains in remote state ${remoteQuote.state}`,
       };
     }
 
@@ -148,13 +156,16 @@ export class MintBolt11Handler implements MintMethodHandler<'bolt11'> {
       );
       if (recovered.length === 0) {
         return {
-          status: 'ROLLED_BACK',
+          status: 'PENDING',
           error: `Recovered: quote ${quoteId} issued remotely but proofs were not recoverable`,
         };
       }
       return { status: 'FINALIZED' };
-    } catch {
-      return { status: 'STAY_EXECUTING' };
+    } catch (error) {
+      return {
+        status: 'PENDING',
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 
@@ -177,15 +188,5 @@ export class MintBolt11Handler implements MintMethodHandler<'bolt11'> {
           `Unexpected mint quote state: ${quote.state} for quote ${quoteId} at mint ${mintUrl}`,
         );
     }
-  }
-
-  async rollback(ctx: RollbackContext<'bolt11'>, reason?: string): Promise<void> {
-    const { mintUrl, quoteId } = ctx.operation;
-    ctx.logger?.info('Rolling back mint operation', {
-      mintUrl,
-      quoteId,
-      reason: reason ?? 'Rollback requested',
-    });
-    // Mint quotes do not support rollback; we only abandon the local operation.
   }
 }

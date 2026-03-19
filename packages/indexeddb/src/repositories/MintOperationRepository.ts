@@ -6,9 +6,17 @@ type MintOperation = NonNullable<Awaited<ReturnType<MintOperationRepository['get
 type MintOperationState = Parameters<MintOperationRepository['getByState']>[0];
 type MintMethodData = MintOperation['methodData'];
 
-const preparedStates: MintOperationState[] = ['prepared', 'executing', 'finalized', 'rolled_back'];
+const persistedStates = ['pending', 'executing', 'finalized'] as const;
 
-const isPreparedState = (state: MintOperationState) => preparedStates.includes(state);
+const isPersistedState = (state: string): state is (typeof persistedStates)[number] =>
+  persistedStates.includes(state as (typeof persistedStates)[number]);
+
+const normalizeState = (state: string): MintOperationState => {
+  if (state === 'pending' || state === 'executing' || state === 'finalized') {
+    return state;
+  }
+  return 'init';
+};
 
 const rowToOperation = (row: MintOperationRow): MintOperation => {
   const base = {
@@ -22,13 +30,13 @@ const rowToOperation = (row: MintOperationRow): MintOperation => {
     error: row.error ?? undefined,
   };
 
-  if (!isPreparedState(row.state)) {
+  if (!isPersistedState(row.state)) {
     return { ...base, state: 'init' };
   }
 
   return {
     ...base,
-    state: row.state,
+    state: normalizeState(row.state),
     amount: row.amount ?? 0,
     outputData: row.outputDataJson ? JSON.parse(row.outputDataJson) : { keep: [], send: [] },
   } as MintOperation;
@@ -113,7 +121,7 @@ export class IdbMintOperationRepository implements MintOperationRepository {
     const rows = (await (this.db as any)
       .table('coco_cashu_mint_operations')
       .where('state')
-      .equals(state)
+      .anyOf([state])
       .toArray()) as MintOperationRow[];
     return rows.map(rowToOperation);
   }
@@ -122,7 +130,7 @@ export class IdbMintOperationRepository implements MintOperationRepository {
     const rows = (await (this.db as any)
       .table('coco_cashu_mint_operations')
       .where('state')
-      .anyOf(['executing'])
+      .anyOf(['pending', 'executing'])
       .toArray()) as MintOperationRow[];
     return rows.map(rowToOperation);
   }

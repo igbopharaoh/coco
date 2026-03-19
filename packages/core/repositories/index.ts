@@ -208,7 +208,7 @@ export interface MintOperationRepository {
   /** Get all mint operations in a specific state */
   getByState(state: MintOperationState): Promise<MintOperation[]>;
 
-  /** Get all pending operations (state in ['executing']) */
+  /** Get all in-flight operations (state in ['pending', 'executing']) */
   getPending(): Promise<MintOperation[]>;
 
   /** Get all operations for a specific mint */

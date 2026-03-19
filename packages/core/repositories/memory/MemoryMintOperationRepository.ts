@@ -36,7 +36,7 @@ export class MemoryMintOperationRepository implements MintOperationRepository {
   async getPending(): Promise<MintOperation[]> {
     const results: MintOperation[] = [];
     for (const operation of this.operations.values()) {
-      if (operation.state === 'executing') {
+      if (operation.state === 'pending' || operation.state === 'executing') {
         results.push({ ...operation });
       }
     }
