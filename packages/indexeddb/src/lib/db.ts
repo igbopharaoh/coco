@@ -233,7 +233,7 @@ export interface AuthSessionRow {
 export interface MintOperationRow {
   id: string;
   mintUrl: string;
-  quoteId: string;
+  quoteId?: string | null;
   state: 'init' | 'pending' | 'executing' | 'finalized' | 'failed';
   createdAt: number;
   updatedAt: number;
@@ -241,5 +241,12 @@ export interface MintOperationRow {
   method: string;
   methodDataJson: string;
   amount?: number | null;
+  unit?: string | null;
+  request?: string | null;
+  expiry?: number | null;
+  pubkey?: string | null;
+  lastObservedRemoteState?: string | null;
+  lastObservedRemoteStateAt?: number | null;
+  terminalFailureJson?: string | null;
   outputDataJson?: string | null;
 }

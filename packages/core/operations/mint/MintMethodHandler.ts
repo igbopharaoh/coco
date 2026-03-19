@@ -9,6 +9,7 @@ import type { Logger } from '../../logging/Logger';
 import type {
   ExecutingMintOperation,
   InitMintOperation,
+  MintOperationFailure,
   PendingMintOperation,
 } from './MintOperation';
 import type { MintAdapter } from '../../infra/MintAdapter';
@@ -18,11 +19,17 @@ import type { MintAdapter } from '../../infra/MintAdapter';
  * Extend via declaration merging to support additional methods.
  */
 export interface MintMethodDefinitions {
-  bolt11: Record<string, never>;
+  bolt11: {
+    methodData: Record<string, never>;
+    remoteState: 'UNPAID' | 'PAID' | 'ISSUED';
+  };
 }
 
 export type MintMethod = keyof MintMethodDefinitions;
-export type MintMethodData<M extends MintMethod = MintMethod> = MintMethodDefinitions[M];
+export type MintMethodData<M extends MintMethod = MintMethod> =
+  MintMethodDefinitions[M]['methodData'];
+export type MintMethodRemoteState<M extends MintMethod = MintMethod> =
+  MintMethodDefinitions[M]['remoteState'];
 
 export interface MintMethodMeta<M extends MintMethod = MintMethod> {
   method: M;
@@ -41,24 +48,24 @@ export interface BaseHandlerDeps {
 }
 
 export interface PrepareContext<M extends MintMethod = MintMethod> extends BaseHandlerDeps {
-  operation: InitMintOperation & MintMethodMeta<M>;
+  operation: InitMintOperation<M>;
   wallet: Wallet;
 }
 
 export interface ExecuteContext<M extends MintMethod = MintMethod> extends BaseHandlerDeps {
-  operation: ExecutingMintOperation & MintMethodMeta<M>;
+  operation: ExecutingMintOperation<M>;
   wallet: Wallet;
 }
 
 export interface RecoverExecutingContext<
   M extends MintMethod = MintMethod,
 > extends BaseHandlerDeps {
-  operation: ExecutingMintOperation & MintMethodMeta<M>;
+  operation: ExecutingMintOperation<M>;
   wallet: Wallet;
 }
 
 export interface PendingContext<M extends MintMethod = MintMethod> extends BaseHandlerDeps {
-  operation: PendingMintOperation & MintMethodMeta<M>;
+  operation: PendingMintOperation<M>;
   wallet: Wallet;
 }
 
@@ -80,13 +87,22 @@ export type RecoverExecutingResult =
   | { status: 'TERMINAL'; error: string }
   | { status: 'PENDING'; error?: string };
 
-export type PendingMintCheckResult = 'paid' | 'unpaid' | 'issued';
+export type PendingMintCheckCategory = 'waiting' | 'ready' | 'completed' | 'terminal';
 
-export interface MintMethodHandler<M extends MintMethod = MintMethod> {
-  prepare(ctx: PrepareContext<M>): Promise<PendingMintOperation & MintMethodMeta<M>>;
-  execute(ctx: ExecuteContext<M>): Promise<MintExecutionResult>;
-  recoverExecuting(ctx: RecoverExecutingContext<M>): Promise<RecoverExecutingResult>;
-  checkPending(ctx: PendingContext<M>): Promise<PendingMintCheckResult>;
+export interface PendingMintCheckResult<M extends MintMethod = MintMethod> {
+  observedRemoteState: MintMethodRemoteState<M>;
+  observedRemoteStateAt: number;
+  category: PendingMintCheckCategory;
+  terminalFailure?: MintOperationFailure;
 }
 
-export type MintMethodHandlerRegistry = Record<MintMethod, MintMethodHandler<MintMethod>>;
+export interface MintMethodHandler<M extends MintMethod = MintMethod> {
+  prepare(ctx: PrepareContext<M>): Promise<PendingMintOperation<M>>;
+  execute(ctx: ExecuteContext<M>): Promise<MintExecutionResult>;
+  recoverExecuting(ctx: RecoverExecutingContext<M>): Promise<RecoverExecutingResult>;
+  checkPending(ctx: PendingContext<M>): Promise<PendingMintCheckResult<M>>;
+}
+
+export type MintMethodHandlerRegistry = {
+  [M in MintMethod]: MintMethodHandler<M>;
+};

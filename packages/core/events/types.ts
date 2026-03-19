@@ -2,7 +2,6 @@ import type {
   MeltQuoteBolt11Response,
   MeltQuoteState,
   MintQuoteBolt11Response,
-  MintQuoteState,
   Token,
 } from '@cashu/cashu-ts';
 import type { MeltOperation } from '@core/operations/melt';
@@ -10,6 +9,7 @@ import type { Counter } from '../models/Counter';
 import type { HistoryEntry } from '../models/History';
 import type { Keyset } from '../models/Keyset';
 import type { Mint } from '../models/Mint';
+import type { MintQuoteState } from '../models/MintQuoteState';
 import type { SendOperation } from '../operations/send/SendOperation';
 import type { CoreProof, ProofState } from '../types';
 import type { MintOperation } from '@core/operations/mint';

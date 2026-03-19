@@ -134,10 +134,19 @@ export class MintOperationService {
     }
 
     const operationId = generateSubId();
-    const operation = createMintOperation(operationId, mintUrl, quoteId, {
-      method,
-      methodData,
-    } as MintMethodMeta);
+    const operation = createMintOperation(
+      operationId,
+      mintUrl,
+      {
+        method,
+        methodData,
+      } as MintMethodMeta,
+      {
+        amount: quote.amount,
+        unit: quote.unit,
+      },
+      { quoteId },
+    );
 
     await this.mintOperationRepository.create(operation);
     this.logger?.debug('Mint operation created', { operationId, mintUrl, quoteId, method });
@@ -768,6 +777,10 @@ export class MintOperationService {
       state: 'failed',
       updatedAt: Date.now(),
       error,
+      terminalFailure: {
+        reason: error,
+        observedAt: Date.now(),
+      },
     };
 
     await this.mintOperationRepository.update(failed);
@@ -834,11 +847,74 @@ export class MintOperationService {
       wallet,
     });
 
-    if (result === 'paid' || result === 'issued') {
+    const observedPending: PendingMintOperation = {
+      ...op,
+      lastObservedRemoteState: result.observedRemoteState,
+      lastObservedRemoteStateAt: result.observedRemoteStateAt,
+      updatedAt: Date.now(),
+    };
+    await this.mintOperationRepository.update(observedPending);
+
+    if (result.category === 'ready' || result.category === 'completed') {
       await this.execute(op.id);
     }
 
+    if (result.category === 'terminal' && result.terminalFailure) {
+      await this.failPendingOperation(op, result.terminalFailure);
+    }
+
     return result;
+  }
+
+  private async failPendingOperation(
+    op: PendingMintOperation,
+    terminalFailure: FailedMintOperation['terminalFailure'],
+  ): Promise<FailedMintOperation> {
+    if (!terminalFailure) {
+      throw new Error(`Cannot fail pending operation ${op.id} without terminal failure details`);
+    }
+
+    const current = await this.mintOperationRepository.getById(op.id);
+    if (!current) {
+      throw new Error(`Operation ${op.id} not found`);
+    }
+
+    if (current.state === 'failed') {
+      return current as FailedMintOperation;
+    }
+
+    if (current.state === 'finalized') {
+      throw new Error(`Cannot fail operation ${op.id} in state ${current.state}`);
+    }
+
+    if (current.state !== 'pending') {
+      throw new Error(`Cannot fail operation ${op.id} in state ${current.state}`);
+    }
+
+    const failed: FailedMintOperation = {
+      ...(current as PendingOrLaterOperation),
+      state: 'failed',
+      updatedAt: Date.now(),
+      error: terminalFailure.reason,
+      terminalFailure,
+    };
+
+    await this.mintOperationRepository.update(failed);
+
+    await this.eventBus.emit('mint-op:finalized', {
+      mintUrl: failed.mintUrl,
+      operationId: failed.id,
+      operation: failed,
+    });
+
+    this.logger?.info('Mint operation failed while pending', {
+      operationId: failed.id,
+      mintUrl: failed.mintUrl,
+      quoteId: failed.quoteId,
+      error: terminalFailure.reason,
+    });
+
+    return failed;
   }
 
   private async hasSavedOutputs(op: PendingOrLaterOperation): Promise<boolean> {

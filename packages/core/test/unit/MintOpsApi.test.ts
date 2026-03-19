@@ -22,6 +22,11 @@ const makePendingOperation = (): PendingMintOperation => ({
   createdAt: Date.now(),
   updatedAt: Date.now(),
   amount: 10,
+  unit: 'sat',
+  request: 'lnbc1test',
+  expiry: Math.floor(Date.now() / 1000) + 3600,
+  lastObservedRemoteState: 'PAID',
+  lastObservedRemoteStateAt: Date.now(),
   outputData: { keep: [], send: [] },
 });
 
@@ -49,7 +54,11 @@ describe('MintOpsApi', () => {
       getOperationByQuote: mock(async () => pendingOperation),
       getPendingOperations: mock(async () => [pendingOperation]),
       getInFlightOperations: mock(async () => [pendingOperation, executingOperation]),
-      checkPendingOperation: mock(async () => 'unpaid'),
+      checkPendingOperation: mock(async () => ({
+        observedRemoteState: 'UNPAID',
+        observedRemoteStateAt: Date.now(),
+        category: 'waiting',
+      })),
       recoverExecutingOperation: mock(async () => {}),
       finalize: mock(async () => finalizedOperation),
       recoverPendingOperations: mock(async () => {}),

@@ -6,6 +6,7 @@ import { IdbMintOperationRepository } from './MintOperationRepository.ts';
 import type { MintOperationRow } from '../lib/db.ts';
 
 describe('IdbMintOperationRepository', () => {
+  const quoteExpiry = 1_730_000_000;
   it('loads supported persisted mint operation states', async () => {
     const rows = new Map<string, MintOperationRow>([
       [
@@ -13,14 +14,14 @@ describe('IdbMintOperationRepository', () => {
         {
           id: 'mint-op-init',
           mintUrl: 'https://mint.test',
-          quoteId: 'quote-init',
           state: 'init',
           createdAt: 1,
           updatedAt: 2,
           error: null,
           method: 'bolt11',
           methodDataJson: JSON.stringify({}),
-          amount: null,
+          amount: 100,
+          unit: 'sat',
           outputDataJson: null,
         },
       ],
@@ -37,6 +38,11 @@ describe('IdbMintOperationRepository', () => {
           method: 'bolt11',
           methodDataJson: JSON.stringify({}),
           amount: 100,
+          unit: 'sat',
+          request: 'lnbc1pending',
+          expiry: quoteExpiry,
+          lastObservedRemoteState: 'PAID',
+          lastObservedRemoteStateAt: 5,
           outputDataJson: JSON.stringify({ keep: [], send: [] }),
         },
       ],
@@ -53,6 +59,11 @@ describe('IdbMintOperationRepository', () => {
           method: 'bolt11',
           methodDataJson: JSON.stringify({}),
           amount: 200,
+          unit: 'sat',
+          request: 'lnbc1finalized',
+          expiry: quoteExpiry + 1,
+          lastObservedRemoteState: 'ISSUED',
+          lastObservedRemoteStateAt: 7,
           outputDataJson: JSON.stringify({ keep: [], send: [] }),
         },
       ],
@@ -69,6 +80,15 @@ describe('IdbMintOperationRepository', () => {
           method: 'bolt11',
           methodDataJson: JSON.stringify({}),
           amount: 300,
+          unit: 'sat',
+          request: 'lnbc1failed',
+          expiry: quoteExpiry + 2,
+          lastObservedRemoteState: 'PAID',
+          lastObservedRemoteStateAt: 9,
+          terminalFailureJson: JSON.stringify({
+            reason: 'quote expired',
+            observedAt: 10,
+          }),
           outputDataJson: JSON.stringify({ keep: [], send: [] }),
         },
       ],
@@ -83,13 +103,14 @@ describe('IdbMintOperationRepository', () => {
     await expect(repository.getById('mint-op-init')).resolves.toEqual({
       id: 'mint-op-init',
       mintUrl: 'https://mint.test',
-      quoteId: 'quote-init',
       state: 'init',
       createdAt: 1000,
       updatedAt: 2000,
       error: undefined,
       method: 'bolt11',
       methodData: {},
+      amount: 100,
+      unit: 'sat',
     });
 
     await expect(repository.getById('mint-op-pending')).resolves.toEqual({
@@ -103,6 +124,11 @@ describe('IdbMintOperationRepository', () => {
       method: 'bolt11',
       methodData: {},
       amount: 100,
+      unit: 'sat',
+      request: 'lnbc1pending',
+      expiry: quoteExpiry,
+      lastObservedRemoteState: 'PAID',
+      lastObservedRemoteStateAt: 5,
       outputData: { keep: [], send: [] },
     });
 
@@ -117,6 +143,11 @@ describe('IdbMintOperationRepository', () => {
       method: 'bolt11',
       methodData: {},
       amount: 200,
+      unit: 'sat',
+      request: 'lnbc1finalized',
+      expiry: quoteExpiry + 1,
+      lastObservedRemoteState: 'ISSUED',
+      lastObservedRemoteStateAt: 7,
       outputData: { keep: [], send: [] },
     });
 
@@ -131,6 +162,15 @@ describe('IdbMintOperationRepository', () => {
       method: 'bolt11',
       methodData: {},
       amount: 300,
+      unit: 'sat',
+      request: 'lnbc1failed',
+      expiry: quoteExpiry + 2,
+      lastObservedRemoteState: 'PAID',
+      lastObservedRemoteStateAt: 9,
+      terminalFailure: {
+        reason: 'quote expired',
+        observedAt: 10,
+      },
       outputData: { keep: [], send: [] },
     });
   });

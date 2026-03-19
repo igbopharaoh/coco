@@ -5,6 +5,7 @@ import { getUnixTimeSeconds } from '../lib/db.ts';
 type MintOperation = NonNullable<Awaited<ReturnType<MintOperationRepository['getById']>>>;
 type MintOperationState = Parameters<MintOperationRepository['getByState']>[0];
 type MintMethodData = MintOperation['methodData'];
+type MintOperationFailure = NonNullable<MintOperation['terminalFailure']>;
 
 const persistedStates = ['pending', 'executing', 'finalized', 'failed'] as const;
 
@@ -27,22 +28,40 @@ const rowToOperation = (row: MintOperationRow): MintOperation => {
   const base = {
     id: row.id,
     mintUrl: row.mintUrl,
-    quoteId: row.quoteId,
     method: row.method as MintOperation['method'],
     methodData: JSON.parse(row.methodDataJson) as MintMethodData,
     createdAt: row.createdAt * 1000,
     updatedAt: row.updatedAt * 1000,
     error: row.error ?? undefined,
+    ...(row.terminalFailureJson
+      ? { terminalFailure: JSON.parse(row.terminalFailureJson) as MintOperationFailure }
+      : {}),
+  };
+
+  const intent = {
+    amount: row.amount ?? 0,
+    unit: row.unit ?? '',
   };
 
   if (!isPersistedState(row.state)) {
-    return { ...base, state: 'init' };
+    return {
+      ...base,
+      ...intent,
+      state: 'init',
+      ...(row.quoteId ? { quoteId: row.quoteId } : {}),
+    };
   }
 
   return {
     ...base,
+    ...intent,
     state: normalizeState(row.state),
-    amount: row.amount ?? 0,
+    quoteId: row.quoteId ?? '',
+    request: row.request ?? '',
+    expiry: row.expiry ?? 0,
+    pubkey: row.pubkey ?? undefined,
+    lastObservedRemoteState: row.lastObservedRemoteState ?? undefined,
+    lastObservedRemoteStateAt: row.lastObservedRemoteStateAt ?? undefined,
     outputData: row.outputDataJson ? JSON.parse(row.outputDataJson) : { keep: [], send: [] },
   } as MintOperation;
 };
@@ -56,14 +75,18 @@ const operationToRow = (operation: MintOperation): MintOperationRow => {
     return {
       id: operation.id,
       mintUrl: operation.mintUrl,
-      quoteId: operation.quoteId,
+      quoteId: operation.quoteId ?? null,
       state: operation.state,
       createdAt: createdAtSeconds,
       updatedAt: updatedAtSeconds,
       error: operation.error ?? null,
       method: operation.method,
       methodDataJson,
-      amount: null,
+      amount: operation.amount,
+      unit: operation.unit,
+      terminalFailureJson: operation.terminalFailure
+        ? JSON.stringify(operation.terminalFailure)
+        : null,
       outputDataJson: null,
     };
   }
@@ -79,6 +102,15 @@ const operationToRow = (operation: MintOperation): MintOperationRow => {
     method: operation.method,
     methodDataJson,
     amount: operation.amount,
+    unit: operation.unit,
+    request: operation.request,
+    expiry: operation.expiry,
+    pubkey: operation.pubkey ?? null,
+    lastObservedRemoteState: operation.lastObservedRemoteState ?? null,
+    lastObservedRemoteStateAt: operation.lastObservedRemoteStateAt ?? null,
+    terminalFailureJson: operation.terminalFailure
+      ? JSON.stringify(operation.terminalFailure)
+      : null,
     outputDataJson: JSON.stringify(operation.outputData),
   };
 };

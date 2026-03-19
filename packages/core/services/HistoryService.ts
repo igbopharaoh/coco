@@ -2,7 +2,6 @@ import type {
   MeltQuoteBolt11Response,
   MeltQuoteState,
   MintQuoteBolt11Response,
-  MintQuoteState,
   Token,
 } from '@cashu/cashu-ts';
 import type { HistoryRepository } from '../repositories';
@@ -16,6 +15,7 @@ import type {
   SendHistoryEntry,
   SendHistoryState,
 } from '@core/models/History';
+import type { MintQuoteState } from '@core/models/MintQuoteState';
 import type { Logger } from '@core/logging';
 import type { SendOperation } from '@core/operations/send/SendOperation';
 

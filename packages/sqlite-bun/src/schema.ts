@@ -375,7 +375,7 @@ const MIGRATIONS: readonly Migration[] = [
       CREATE TABLE IF NOT EXISTS coco_cashu_mint_operations (
         id TEXT PRIMARY KEY,
         mintUrl TEXT NOT NULL,
-        quoteId TEXT NOT NULL,
+        quoteId TEXT,
         state TEXT NOT NULL CHECK (state IN ('init', 'pending', 'executing', 'finalized', 'failed')),
         createdAt INTEGER NOT NULL,
         updatedAt INTEGER NOT NULL,
@@ -383,6 +383,13 @@ const MIGRATIONS: readonly Migration[] = [
         method TEXT NOT NULL,
         methodDataJson TEXT NOT NULL,
         amount INTEGER,
+        unit TEXT,
+        request TEXT,
+        expiry INTEGER,
+        pubkey TEXT,
+        lastObservedRemoteState TEXT,
+        lastObservedRemoteStateAt INTEGER,
+        terminalFailureJson TEXT,
         outputDataJson TEXT
       );
 
@@ -391,7 +398,8 @@ const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_coco_cashu_mint_operations_mint
         ON coco_cashu_mint_operations(mintUrl);
       CREATE INDEX IF NOT EXISTS idx_coco_cashu_mint_operations_mint_quote
-        ON coco_cashu_mint_operations(mintUrl, quoteId);
+        ON coco_cashu_mint_operations(mintUrl, quoteId)
+        WHERE quoteId IS NOT NULL;
     `,
   },
   {
@@ -402,7 +410,7 @@ const MIGRATIONS: readonly Migration[] = [
       CREATE TABLE coco_cashu_mint_operations (
         id TEXT PRIMARY KEY,
         mintUrl TEXT NOT NULL,
-        quoteId TEXT NOT NULL,
+        quoteId TEXT,
         state TEXT NOT NULL CHECK (state IN ('init', 'pending', 'executing', 'finalized', 'failed')),
         createdAt INTEGER NOT NULL,
         updatedAt INTEGER NOT NULL,
@@ -410,11 +418,18 @@ const MIGRATIONS: readonly Migration[] = [
         method TEXT NOT NULL,
         methodDataJson TEXT NOT NULL,
         amount INTEGER,
+        unit TEXT,
+        request TEXT,
+        expiry INTEGER,
+        pubkey TEXT,
+        lastObservedRemoteState TEXT,
+        lastObservedRemoteStateAt INTEGER,
+        terminalFailureJson TEXT,
         outputDataJson TEXT
       );
 
       INSERT INTO coco_cashu_mint_operations (
-        id, mintUrl, quoteId, state, createdAt, updatedAt, error, method, methodDataJson, amount, outputDataJson
+        id, mintUrl, quoteId, state, createdAt, updatedAt, error, method, methodDataJson, amount, unit, request, expiry, pubkey, lastObservedRemoteState, lastObservedRemoteStateAt, terminalFailureJson, outputDataJson
       )
       SELECT
         id,
@@ -431,6 +446,13 @@ const MIGRATIONS: readonly Migration[] = [
         method,
         methodDataJson,
         amount,
+        unit,
+        request,
+        expiry,
+        pubkey,
+        lastObservedRemoteState,
+        lastObservedRemoteStateAt,
+        terminalFailureJson,
         outputDataJson
       FROM coco_cashu_mint_operations_legacy;
 
@@ -441,7 +463,8 @@ const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_coco_cashu_mint_operations_mint
         ON coco_cashu_mint_operations(mintUrl);
       CREATE INDEX IF NOT EXISTS idx_coco_cashu_mint_operations_mint_quote
-        ON coco_cashu_mint_operations(mintUrl, quoteId);
+        ON coco_cashu_mint_operations(mintUrl, quoteId)
+        WHERE quoteId IS NOT NULL;
     `,
   },
   {
@@ -452,7 +475,7 @@ const MIGRATIONS: readonly Migration[] = [
       CREATE TABLE coco_cashu_mint_operations (
         id TEXT PRIMARY KEY,
         mintUrl TEXT NOT NULL,
-        quoteId TEXT NOT NULL,
+        quoteId TEXT,
         state TEXT NOT NULL CHECK (state IN ('init', 'pending', 'executing', 'finalized', 'failed')),
         createdAt INTEGER NOT NULL,
         updatedAt INTEGER NOT NULL,
@@ -460,11 +483,18 @@ const MIGRATIONS: readonly Migration[] = [
         method TEXT NOT NULL,
         methodDataJson TEXT NOT NULL,
         amount INTEGER,
+        unit TEXT,
+        request TEXT,
+        expiry INTEGER,
+        pubkey TEXT,
+        lastObservedRemoteState TEXT,
+        lastObservedRemoteStateAt INTEGER,
+        terminalFailureJson TEXT,
         outputDataJson TEXT
       );
 
       INSERT INTO coco_cashu_mint_operations (
-        id, mintUrl, quoteId, state, createdAt, updatedAt, error, method, methodDataJson, amount, outputDataJson
+        id, mintUrl, quoteId, state, createdAt, updatedAt, error, method, methodDataJson, amount, unit, request, expiry, pubkey, lastObservedRemoteState, lastObservedRemoteStateAt, terminalFailureJson, outputDataJson
       )
       SELECT
         id,
@@ -477,6 +507,13 @@ const MIGRATIONS: readonly Migration[] = [
         method,
         methodDataJson,
         amount,
+        unit,
+        request,
+        expiry,
+        pubkey,
+        lastObservedRemoteState,
+        lastObservedRemoteStateAt,
+        terminalFailureJson,
         outputDataJson
       FROM coco_cashu_mint_operations_legacy;
 
@@ -487,7 +524,8 @@ const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_coco_cashu_mint_operations_mint
         ON coco_cashu_mint_operations(mintUrl);
       CREATE INDEX IF NOT EXISTS idx_coco_cashu_mint_operations_mint_quote
-        ON coco_cashu_mint_operations(mintUrl, quoteId);
+        ON coco_cashu_mint_operations(mintUrl, quoteId)
+        WHERE quoteId IS NOT NULL;
     `,
   },
 ];

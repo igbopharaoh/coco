@@ -405,7 +405,7 @@ export async function ensureSchema(db: IdbDb): Promise<void> {
     coco_cashu_auth_sessions: '&mintUrl',
   });
 
-  // Version 11: Add mint operations store
+  // Version 16: Add mint operations store with the current unreleased row shape
   db.version(16).stores({
     coco_cashu_mints: '&mintUrl, name, updatedAt, trusted',
     coco_cashu_keysets: '&[mintUrl+id], mintUrl, id, updatedAt, unit',
@@ -420,6 +420,7 @@ export async function ensureSchema(db: IdbDb): Promise<void> {
     coco_cashu_send_operations: '&id, state, mintUrl',
     coco_cashu_melt_operations: '&id, state, mintUrl, [mintUrl+quoteId]',
     coco_cashu_receive_operations: '&id, state, mintUrl',
+    coco_cashu_auth_sessions: '&mintUrl',
     coco_cashu_mint_operations: '&id, state, mintUrl, [mintUrl+quoteId]',
   });
 }

@@ -7,6 +7,7 @@ import { Database } from 'bun:sqlite';
 import { SqliteRepositories } from '../index.ts';
 
 describe('SqliteMintOperationRepository', () => {
+  const quoteExpiry = 1_730_000_000;
   let database: Database;
   let repositories: SqliteRepositories;
 
@@ -24,13 +25,14 @@ describe('SqliteMintOperationRepository', () => {
     await repositories.mintOperationRepository.create({
       id: 'mint-op-init',
       mintUrl: 'https://mint.test',
-      quoteId: 'quote-init',
       state: 'init',
       createdAt: 1000,
       updatedAt: 2000,
       error: undefined,
       method: 'bolt11',
       methodData: {},
+      amount: 100,
+      unit: 'sat',
     });
 
     await repositories.mintOperationRepository.create({
@@ -44,6 +46,11 @@ describe('SqliteMintOperationRepository', () => {
       method: 'bolt11',
       methodData: {},
       amount: 100,
+      unit: 'sat',
+      request: 'lnbc1pending',
+      expiry: quoteExpiry,
+      lastObservedRemoteState: 'PAID',
+      lastObservedRemoteStateAt: 4500,
       outputData: { keep: [], send: [] },
     });
 
@@ -58,6 +65,11 @@ describe('SqliteMintOperationRepository', () => {
       method: 'bolt11',
       methodData: {},
       amount: 200,
+      unit: 'sat',
+      request: 'lnbc1finalized',
+      expiry: quoteExpiry + 1,
+      lastObservedRemoteState: 'ISSUED',
+      lastObservedRemoteStateAt: 6500,
       outputData: { keep: [], send: [] },
     });
 
@@ -72,19 +84,29 @@ describe('SqliteMintOperationRepository', () => {
       method: 'bolt11',
       methodData: {},
       amount: 300,
+      unit: 'sat',
+      request: 'lnbc1failed',
+      expiry: quoteExpiry + 2,
+      lastObservedRemoteState: 'PAID',
+      lastObservedRemoteStateAt: 8500,
+      terminalFailure: {
+        reason: 'quote expired',
+        observedAt: 9000,
+      },
       outputData: { keep: [], send: [] },
     });
 
     expect(await repositories.mintOperationRepository.getById('mint-op-init')).toEqual({
       id: 'mint-op-init',
       mintUrl: 'https://mint.test',
-      quoteId: 'quote-init',
       state: 'init',
       createdAt: 1000,
       updatedAt: 2000,
       error: undefined,
       method: 'bolt11',
       methodData: {},
+      amount: 100,
+      unit: 'sat',
     });
 
     expect(await repositories.mintOperationRepository.getById('mint-op-pending')).toEqual({
@@ -98,6 +120,11 @@ describe('SqliteMintOperationRepository', () => {
       method: 'bolt11',
       methodData: {},
       amount: 100,
+      unit: 'sat',
+      request: 'lnbc1pending',
+      expiry: quoteExpiry,
+      lastObservedRemoteState: 'PAID',
+      lastObservedRemoteStateAt: 4500,
       outputData: { keep: [], send: [] },
     });
 
@@ -112,6 +139,11 @@ describe('SqliteMintOperationRepository', () => {
       method: 'bolt11',
       methodData: {},
       amount: 200,
+      unit: 'sat',
+      request: 'lnbc1finalized',
+      expiry: quoteExpiry + 1,
+      lastObservedRemoteState: 'ISSUED',
+      lastObservedRemoteStateAt: 6500,
       outputData: { keep: [], send: [] },
     });
 
@@ -126,6 +158,15 @@ describe('SqliteMintOperationRepository', () => {
       method: 'bolt11',
       methodData: {},
       amount: 300,
+      unit: 'sat',
+      request: 'lnbc1failed',
+      expiry: quoteExpiry + 2,
+      lastObservedRemoteState: 'PAID',
+      lastObservedRemoteStateAt: 8500,
+      terminalFailure: {
+        reason: 'quote expired',
+        observedAt: 9000,
+      },
       outputData: { keep: [], send: [] },
     });
   });

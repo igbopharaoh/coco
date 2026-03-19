@@ -1,9 +1,10 @@
 import type { MintQuoteRepository } from '../repositories';
 import type { MintService } from './MintService';
 import type { WalletService } from './WalletService';
-import type { MintQuoteBolt11Response, MintQuoteState } from '@cashu/cashu-ts';
+import type { MintQuoteBolt11Response } from '@cashu/cashu-ts';
 import type { CoreEvents, EventBus } from '@core/events';
 import type { Logger } from '../logging/Logger.ts';
+import type { MintQuoteState } from '../models/MintQuoteState';
 import type { MintOperationService } from '@core/operations/mint';
 import { UnknownMintError } from '../models/Error';
 

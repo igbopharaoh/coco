@@ -4,7 +4,7 @@ import { MintBolt11Handler } from '../../infra/handlers/mint/MintBolt11Handler';
 import { MintOperationError } from '../../models/Error';
 import { EventBus } from '../../events/EventBus';
 import type { CoreEvents } from '../../events/types';
-import type { RecoverExecutingContext } from '../../operations/mint';
+import type { PendingContext, RecoverExecutingContext } from '../../operations/mint';
 import { serializeOutputData } from '../../utils';
 import type { ProofService } from '../../services/ProofService';
 import type { WalletService } from '../../services/WalletService';
@@ -53,6 +53,11 @@ describe('MintBolt11Handler', () => {
     mintUrl,
     quoteId,
     amount: 10,
+    unit: 'sat',
+    request: 'lnbc1test',
+    expiry: Math.floor(Date.now() / 1000) + 3600,
+    lastObservedRemoteState: 'PAID' as const,
+    lastObservedRemoteStateAt: Date.now(),
     outputData,
     method: 'bolt11' as const,
     methodData: {},
@@ -62,6 +67,22 @@ describe('MintBolt11Handler', () => {
 
   const buildRecoverContext = (): RecoverExecutingContext<'bolt11'> => ({
     operation,
+    wallet,
+    mintAdapter,
+    proofService,
+    mintQuoteRepository,
+    proofRepository,
+    walletService,
+    mintService,
+    eventBus,
+    logger,
+  });
+
+  const buildPendingContext = (): PendingContext<'bolt11'> => ({
+    operation: {
+      ...operation,
+      state: 'pending',
+    },
     wallet,
     mintAdapter,
     proofService,
@@ -103,7 +124,7 @@ describe('MintBolt11Handler', () => {
     walletService = {} as WalletService;
     mintService = {} as MintService;
     eventBus = new EventBus<CoreEvents>();
-    logger = {} as Logger;
+    logger = { info: mock(() => {}) } as unknown as Logger;
   });
 
   describe('recoverExecuting', () => {
@@ -116,6 +137,16 @@ describe('MintBolt11Handler', () => {
       });
       expect((wallet.mintProofsBolt11 as Mock<any>).mock.calls.length).toBe(1);
       expect((proofService.saveProofs as Mock<any>).mock.calls.length).toBe(0);
+    });
+  });
+
+  describe('checkPending', () => {
+    it('returns the observed remote state with a normalized ready category', async () => {
+      const result = await handler.checkPending(buildPendingContext());
+
+      expect(result.observedRemoteState).toBe('PAID');
+      expect(result.category).toBe('ready');
+      expect(result.observedRemoteStateAt).toEqual(expect.any(Number));
     });
   });
 });

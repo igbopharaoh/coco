@@ -2,8 +2,8 @@ import { describe, it, beforeEach, afterEach, expect } from 'bun:test';
 import { MintQuoteProcessor } from '../../services/watchers/MintQuoteProcessor';
 import { EventBus } from '../../events/EventBus';
 import type { CoreEvents } from '../../events/types';
+import type { MintQuoteState } from '../../models/MintQuoteState';
 import type { MintQuoteService } from '../../services/MintQuoteService';
-import type { MintQuoteState } from '@cashu/cashu-ts';
 import { MintOperationError, NetworkError } from '../../models/Error';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

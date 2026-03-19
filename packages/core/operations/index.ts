@@ -8,7 +8,13 @@ export type {
   MintOperation,
   MintOperationState,
 } from './mint/MintOperation.ts';
-export type { MintMethod, MintMethodData } from './mint/MintMethodHandler.ts';
+export type {
+  MintMethod,
+  MintMethodData,
+  MintMethodRemoteState,
+  PendingMintCheckCategory,
+  PendingMintCheckResult,
+} from './mint/MintMethodHandler.ts';
 export { MintOperationService } from './mint/MintOperationService.ts';
 export * from './send';
 export type {
@@ -16,4 +22,3 @@ export type {
   ReceiveOperationState,
 } from './receive/ReceiveOperation.ts';
 export { ReceiveOperationService  } from './receive/ReceiveOperationService.ts';
-

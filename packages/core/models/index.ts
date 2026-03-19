@@ -7,3 +7,4 @@ export * from './Keyset';
 export * from './MeltQuote';
 export * from './Mint';
 export * from './MintQuote';
+export * from './MintQuoteState';

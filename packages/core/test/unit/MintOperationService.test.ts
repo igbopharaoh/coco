@@ -80,9 +80,11 @@ describe('MintOperationService', () => {
     id,
     state: 'init',
     mintUrl,
-    quoteId,
     method: 'bolt11',
     methodData: {},
+    amount: 10,
+    unit: 'sat',
+    quoteId,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   });
@@ -90,7 +92,12 @@ describe('MintOperationService', () => {
   const makePendingOp = (id: string, secret = 'out-1'): PendingMintOperation => ({
     ...makeInitOp(id),
     state: 'pending',
+    quoteId,
     amount: 10,
+    request: 'lnbc1test',
+    expiry: Math.floor(Date.now() / 1000) + 3600,
+    lastObservedRemoteState: 'PAID',
+    lastObservedRemoteStateAt: Date.now(),
     outputData: makeSerializedOutputData(secret),
   });
 
@@ -127,7 +134,11 @@ describe('MintOperationService', () => {
       return { status: 'PENDING' };
     });
 
-    const mockCheckPending = mock(async (): Promise<PendingMintCheckResult> => 'unpaid');
+    const mockCheckPending = mock(async (): Promise<PendingMintCheckResult<'bolt11'>> => ({
+      observedRemoteState: 'UNPAID',
+      observedRemoteStateAt: Date.now(),
+      category: 'waiting',
+    }));
 
     handler = {
       prepare: mockPrepare,
@@ -334,7 +345,11 @@ describe('MintOperationService', () => {
     await operationRepo.create(initOp);
     await operationRepo.create(pendingOp);
 
-    (handler.checkPending as Mock<any>).mockResolvedValueOnce('paid');
+    (handler.checkPending as Mock<any>).mockResolvedValueOnce({
+      observedRemoteState: 'PAID',
+      observedRemoteStateAt: Date.now(),
+      category: 'ready',
+    });
 
     await service.recoverPendingOperations();
 
@@ -352,7 +367,13 @@ describe('MintOperationService', () => {
     const result = await service.checkPendingOperation(pendingOp.id);
     const stored = await operationRepo.getById(pendingOp.id);
 
-    expect(result).toBe('unpaid');
+    expect(result.category).toBe('waiting');
+    expect(result.observedRemoteState).toBe('UNPAID');
     expect(stored?.state).toBe('pending');
+    if (!stored || stored.state !== 'pending') {
+      throw new Error('Expected pending operation to remain pending after unpaid check');
+    }
+    expect(stored.lastObservedRemoteState).toBe('UNPAID');
+    expect(stored.lastObservedRemoteStateAt).toEqual(expect.any(Number));
   });
 });

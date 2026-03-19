@@ -17,18 +17,23 @@ import type { MintQuoteBolt11Response } from '@cashu/cashu-ts';
 export class MintBolt11Handler implements MintMethodHandler<'bolt11'> {
   async prepare(
     ctx: PrepareContext<'bolt11'>,
-  ): Promise<PendingMintOperation & MintMethodMeta<'bolt11'>> {
+  ): Promise<PendingMintOperation<'bolt11'> & MintMethodMeta<'bolt11'>> {
+    const quoteId = ctx.operation.quoteId;
+    if (!quoteId) {
+      throw new Error('Mint quote ID is required for bolt11 prepare');
+    }
+
     const quote = await ctx.mintQuoteRepository.getMintQuote(
       ctx.operation.mintUrl,
-      ctx.operation.quoteId,
+      quoteId,
     );
 
     if (!quote) {
-      throw new Error(`Mint quote ${ctx.operation.quoteId} not found`);
+      throw new Error(`Mint quote ${quoteId} not found`);
     }
 
     if (!quote.amount || quote.amount <= 0) {
-      throw new Error(`Mint quote ${ctx.operation.quoteId} has invalid amount`);
+      throw new Error(`Mint quote ${quoteId} has invalid amount`);
     }
 
     const outputData = await ctx.proofService.createOutputsAndIncrementCounters(
@@ -45,7 +50,14 @@ export class MintBolt11Handler implements MintMethodHandler<'bolt11'> {
 
     return {
       ...ctx.operation,
+      quoteId: quote.quote,
       amount: quote.amount,
+      unit: quote.unit,
+      request: quote.request,
+      expiry: quote.expiry,
+      pubkey: quote.pubkey,
+      lastObservedRemoteState: quote.state,
+      lastObservedRemoteStateAt: Date.now(),
       outputData: serializeOutputData({ keep: outputData.keep, send: [] }),
       state: 'pending',
     };
@@ -175,14 +187,27 @@ export class MintBolt11Handler implements MintMethodHandler<'bolt11'> {
 
     const quote = await ctx.mintAdapter.checkMintQuoteState(mintUrl, quoteId);
     ctx.logger?.info('Pending mint quote state', { mintUrl, quoteId, state: quote.state });
+    const observedRemoteStateAt = Date.now();
 
     switch (quote.state) {
       case 'UNPAID':
-        return 'unpaid';
+        return {
+          observedRemoteState: quote.state,
+          observedRemoteStateAt,
+          category: 'waiting',
+        };
       case 'PAID':
-        return 'paid';
+        return {
+          observedRemoteState: quote.state,
+          observedRemoteStateAt,
+          category: 'ready',
+        };
       case 'ISSUED':
-        return 'issued';
+        return {
+          observedRemoteState: quote.state,
+          observedRemoteStateAt,
+          category: 'completed',
+        };
       default:
         throw new Error(
           `Unexpected mint quote state: ${quote.state} for quote ${quoteId} at mint ${mintUrl}`,

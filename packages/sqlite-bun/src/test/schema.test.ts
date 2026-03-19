@@ -56,6 +56,9 @@ describe('sqlite-bun schema migrations', () => {
       method: 'bolt11',
       methodData: {},
       amount: 100,
+      unit: 'sat',
+      request: 'lnbc1test',
+      expiry: 1_730_000_000,
       outputData: { keep: [], send: [] },
     });
 
@@ -70,6 +73,12 @@ describe('sqlite-bun schema migrations', () => {
       method: 'bolt11',
       methodData: {},
       amount: 100,
+      unit: 'sat',
+      request: 'lnbc1test',
+      expiry: 1_730_000_000,
+      pubkey: undefined,
+      lastObservedRemoteState: undefined,
+      lastObservedRemoteStateAt: undefined,
       outputData: { keep: [], send: [] },
     });
   });

@@ -1,7 +1,7 @@
 import type { EventBus, CoreEvents } from '@core/events';
 import type { Logger } from '../../logging/Logger.ts';
+import type { MintQuoteState } from '../../models/MintQuoteState';
 import type { MintQuoteService } from '../MintQuoteService';
-import type { MintQuoteState } from '@cashu/cashu-ts';
 import { MintOperationError, NetworkError } from '../../models/Error';
 
 interface QueueItem {
