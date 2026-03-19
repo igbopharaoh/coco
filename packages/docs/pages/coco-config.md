@@ -10,7 +10,7 @@ export interface CocoConfig {
   webSocketFactory?: WebSocketFactory;
   plugins?: Plugin[];
   watchers?: {
-    mintQuoteWatcher?: {
+    mintOperationWatcher?: {
       disabled?: boolean;
       watchExistingPendingOnStart?: boolean;
     };
@@ -19,7 +19,7 @@ export interface CocoConfig {
     };
   };
   processors?: {
-    mintQuoteProcessor?: {
+    mintOperationProcessor?: {
       disabled?: boolean;
       processIntervalMs?: number;
       maxRetries?: number;

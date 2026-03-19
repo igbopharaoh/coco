@@ -96,18 +96,18 @@ console.log('balances', balances);
 Start background watchers or processors to automatically react to changes:
 
 ```ts
-// Watch mint quote updates and auto-redeem previously pending ones on start (default true)
-await manager.enableMintQuoteWatcher({ watchExistingPendingOnStart: true });
+// Watch mint operation quote updates on startup and while running (default true)
+await manager.enableMintOperationWatcher({ watchExistingPendingOnStart: true });
 
-// Process queued mint quotes (auto-enabled by initializeCoco)
-await manager.enableMintQuoteProcessor({ processIntervalMs: 3000 });
+// Process queued mint operations from live events (auto-enabled by initializeCoco)
+await manager.enableMintOperationProcessor({ processIntervalMs: 3000 });
 
 // Watch proof state updates (e.g., to move inflight proofs to spent)
 await manager.enableProofStateWatcher();
 
 // Later, you can stop them
-await manager.disableMintQuoteWatcher();
-await manager.disableMintQuoteProcessor();
+await manager.disableMintOperationWatcher();
+await manager.disableMintOperationProcessor();
 await manager.disableProofStateWatcher();
 ```
 
@@ -120,8 +120,8 @@ await manager.disableProofStateWatcher();
 - `logger`: optional logger (defaults to `NullLogger`)
 - `webSocketFactory`: optional WebSocket factory
 - `plugins`: optional plugin list
-- `watchers`: enable/disable watcher services (`mintQuoteWatcher`, `proofStateWatcher`)
-- `processors`: enable/disable processors (`mintQuoteProcessor`) and tune intervals
+- `watchers`: enable/disable watcher services (`mintOperationWatcher`, `proofStateWatcher`)
+- `processors`: enable/disable processors (`mintOperationProcessor`) and tune intervals
 - `subscriptions`: polling intervals for hybrid WebSocket + polling (`slowPollingIntervalMs`, `fastPollingIntervalMs`)
 
 If you prefer manual wiring, construct `Manager` directly and call `initPlugins()` before enabling watchers/processors.
@@ -132,7 +132,7 @@ If you prefer manual wiring, construct `Manager` directly and call `initPlugins(
 - `MintService`: Fetches `mintInfo`, keysets and persists via repositories.
 - `WalletService`: Caches and constructs `Wallet` from stored keysets.
 - `ProofService`: Manages proofs, selection, states, and counters.
-- `MintQuoteService`: Creates and redeems mint quotes.
+- Legacy mint quote orchestration has been replaced by `MintOperationService` and `manager.ops.mint`.
 - `MeltQuoteService`: Creates and pays melt quotes (spend via Lightning).
 - `CounterService`: Simple per-(mint,keyset) numeric counter with events.
 - `EventBus<CoreEvents>`: Lightweight typed pub/sub used internally (includes `subscriptions:paused` and `subscriptions:resumed`).
@@ -169,11 +169,11 @@ In-memory reference implementations are provided under `repositories/memory/` fo
 - `receive: ReceiveOpsApi` (deprecated alias of `manager.ops.receive`)
 - `ext: PluginExtensions`
 - `on/once/off` for `CoreEvents`
-- `enableMintQuoteWatcher(options?: { watchExistingPendingOnStart?: boolean }): Promise<void>`
-- `disableMintQuoteWatcher(): Promise<void>`
-- `enableMintQuoteProcessor(options?: { processIntervalMs?: number; maxRetries?: number; baseRetryDelayMs?: number; initialEnqueueDelayMs?: number }): Promise<boolean>`
-- `disableMintQuoteProcessor(): Promise<void>`
-- `waitForMintQuoteProcessor(): Promise<void>`
+- `enableMintOperationWatcher(options?: { watchExistingPendingOnStart?: boolean }): Promise<void>`
+- `disableMintOperationWatcher(): Promise<void>`
+- `enableMintOperationProcessor(options?: { processIntervalMs?: number; maxRetries?: number; baseRetryDelayMs?: number; initialEnqueueDelayMs?: number }): Promise<boolean>`
+- `disableMintOperationProcessor(): Promise<void>`
+- `waitForMintOperationProcessor(): Promise<void>`
 - `enableProofStateWatcher(): Promise<void>`
 - `disableProofStateWatcher(): Promise<void>`
 - `pauseSubscriptions(): Promise<void>`
@@ -318,11 +318,11 @@ In-memory reference implementations are provided under `repositories/memory/` fo
 - `proofs:wiped` → `{ mintUrl, keysetId }`
 - `proofs:reserved` → `{ mintUrl, operationId, secrets, amount }`
 - `proofs:released` → `{ mintUrl, secrets }`
-- `mint-quote:state-changed` → `{ mintUrl, quoteId, state }`
-- `mint-quote:created` → `{ mintUrl, quoteId, quote }`
-- `mint-quote:added` → `{ mintUrl, quoteId, quote }`
-- `mint-quote:requeue` → `{ mintUrl, quoteId }`
-- `mint-quote:redeemed` → `{ mintUrl, quoteId, quote }`
+- `mint-op:pending` → `{ mintUrl, operationId, operation }`
+- `mint-op:quote-state-changed` → `{ mintUrl, operationId, operation, quoteId, state }`
+- `mint-op:requeue` → `{ mintUrl, operationId, operation }`
+- `mint-op:executing` → `{ mintUrl, operationId, operation }`
+- `mint-op:finalized` → `{ mintUrl, operationId, operation }`
 - `melt-quote:created` → `{ mintUrl, quoteId, quote }`
 - `melt-quote:state-changed` → `{ mintUrl, quoteId, state }`
 - `melt-quote:paid` → `{ mintUrl, quoteId, quote }`
@@ -352,7 +352,7 @@ import type { Plugin, ServiceKey } from 'coco-cashu-core';
 
 // Service keys you can request:
 // 'mintService' | 'walletService' | 'proofService' | 'seedService' | 'walletRestoreService'
-// 'counterService' | 'mintQuoteService' | 'meltQuoteService' | 'historyService'
+// 'counterService' | 'meltQuoteService' | 'historyService'
 // 'subscriptions' | 'eventBus' | 'logger'
 
 const myPlugin: Plugin<['eventBus', 'logger']> = {

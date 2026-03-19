@@ -31,8 +31,8 @@ const pendingMint = await coco.ops.mint.prepare({
 console.log('pay this: ', pendingMint.request);
 console.log('this is the quote id: ', pendingMint.quoteId);
 
-coco.on('mint-quote:redeemed', (payload) => {
-  if (payload.quoteId === pendingMint.quoteId) {
+coco.on('mint-op:finalized', (payload) => {
+  if (payload.operationId === pendingMint.id) {
     console.log('This was paid!!');
   }
 });
