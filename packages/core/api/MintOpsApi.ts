@@ -1,11 +1,11 @@
 import type {
-  FinalizedMintOperation,
   MintMethod,
   MintMethodData,
   MintOperation,
   MintOperationService,
   PendingMintCheckResult,
   PendingMintOperation,
+  TerminalMintOperation,
 } from '@core/operations/mint';
 
 /** Mint methods supported by the default `Manager` wiring. */
@@ -70,9 +70,9 @@ export class MintOpsApi<TSupported extends MintMethod = DefaultSupportedMintMeth
   }
 
   /**
-   * Executes a pending mint operation.
+   * Executes a pending mint operation and returns its terminal state.
    */
-  async execute(operationOrId: MintOperation | string): Promise<FinalizedMintOperation> {
+  async execute(operationOrId: MintOperation | string): Promise<TerminalMintOperation> {
     const operation = await this.resolveOperation(operationOrId);
     if (operation.state !== 'pending') {
       throw new Error(
@@ -138,9 +138,9 @@ export class MintOpsApi<TSupported extends MintMethod = DefaultSupportedMintMeth
    * Attempts to finalize a mint operation explicitly.
    *
    * Pending operations are executed, executing operations are recovered,
-   * and finalized operations are returned as-is.
+   * and terminal operations are returned as-is.
    */
-  async finalize(operationId: string): Promise<FinalizedMintOperation> {
+  async finalize(operationId: string): Promise<TerminalMintOperation> {
     return this.mintOperationService.finalize(operationId);
   }
 

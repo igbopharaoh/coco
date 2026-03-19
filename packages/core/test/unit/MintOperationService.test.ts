@@ -259,6 +259,40 @@ describe('MintOperationService', () => {
     expect(stored?.state).toBe('pending');
   });
 
+  it('recoverExecutingOperation finalizes expired quotes as terminal failures', async () => {
+    const op = makeExecutingOp('exec-expired');
+    await operationRepo.create(op);
+
+    (handler.recoverExecuting as Mock<any>).mockResolvedValueOnce({
+      status: 'TERMINAL',
+      error: `Recovered: quote ${quoteId} expired while executing mint`,
+    });
+
+    await service.recoverExecutingOperation(op);
+
+    const stored = await operationRepo.getById(op.id);
+    const quote = await mintQuoteRepo.getMintQuote(mintUrl, quoteId);
+
+    expect(stored?.state).toBe('failed');
+    expect(stored?.error).toBe(`Recovered: quote ${quoteId} expired while executing mint`);
+    expect(quote?.state).toBe('PAID');
+  });
+
+  it('redeem returns a failed operation when recovery finds an expired quote', async () => {
+    const op = makeExecutingOp('exec-expired-redeem');
+    await operationRepo.create(op);
+
+    (handler.recoverExecuting as Mock<any>).mockResolvedValueOnce({
+      status: 'TERMINAL',
+      error: `Recovered: quote ${quoteId} expired while executing mint`,
+    });
+
+    const result = await service.redeem(mintUrl, quoteId);
+
+    expect(result?.state).toBe('failed');
+    expect(result?.id).toBe(op.id);
+  });
+
   it('redeem retries when executing operation is recovered back to pending', async () => {
     const op = makeExecutingOp('exec-4');
     await operationRepo.create(op);

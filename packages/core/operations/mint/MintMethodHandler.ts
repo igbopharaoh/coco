@@ -77,6 +77,7 @@ export type MintExecutionResult =
 
 export type RecoverExecutingResult =
   | { status: 'FINALIZED' }
+  | { status: 'TERMINAL'; error: string }
   | { status: 'PENDING'; error?: string };
 
 export type PendingMintCheckResult = 'paid' | 'unpaid' | 'issued';

@@ -6,13 +6,18 @@ type MintOperation = NonNullable<Awaited<ReturnType<MintOperationRepository['get
 type MintOperationState = Parameters<MintOperationRepository['getByState']>[0];
 type MintMethodData = MintOperation['methodData'];
 
-const persistedStates = ['pending', 'executing', 'finalized'] as const;
+const persistedStates = ['pending', 'executing', 'finalized', 'failed'] as const;
 
 const isPersistedState = (state: string): state is (typeof persistedStates)[number] =>
   persistedStates.includes(state as (typeof persistedStates)[number]);
 
 const normalizeState = (state: string): MintOperationState => {
-  if (state === 'pending' || state === 'executing' || state === 'finalized') {
+  if (
+    state === 'pending' ||
+    state === 'executing' ||
+    state === 'finalized' ||
+    state === 'failed'
+  ) {
     return state;
   }
   return 'init';

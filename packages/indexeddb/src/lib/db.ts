@@ -234,7 +234,7 @@ export interface MintOperationRow {
   id: string;
   mintUrl: string;
   quoteId: string;
-  state: 'init' | 'pending' | 'executing' | 'finalized';
+  state: 'init' | 'pending' | 'executing' | 'finalized' | 'failed';
   createdAt: number;
   updatedAt: number;
   error?: string | null;

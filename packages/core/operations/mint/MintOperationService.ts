@@ -6,13 +6,20 @@ import type {
 } from '../../repositories';
 import type {
   ExecutingMintOperation,
+  FailedMintOperation,
   FinalizedMintOperation,
   InitMintOperation,
   MintOperation,
   PendingMintOperation,
   PendingOrLaterOperation,
+  TerminalMintOperation,
 } from './MintOperation';
-import { createMintOperation, getOutputProofSecrets, hasPendingData } from './MintOperation';
+import {
+  createMintOperation,
+  getOutputProofSecrets,
+  hasPendingData,
+  isTerminalOperation,
+} from './MintOperation';
 import type {
   MintMethod,
   MintMethodData,
@@ -207,7 +214,7 @@ export class MintOperationService {
     throw new Error(`Failed to prepare operation ${operationId}`);
   }
 
-  async execute(operationId: string): Promise<FinalizedMintOperation> {
+  async execute(operationId: string): Promise<TerminalMintOperation> {
     const releaseLock = await this.acquireOperationLock(operationId);
     try {
       const operation = await this.mintOperationRepository.getById(operationId);
@@ -272,8 +279,8 @@ export class MintOperationService {
         await this.tryRecoverExecutingOperation(executing);
 
         const current = await this.mintOperationRepository.getById(operationId);
-        if (current?.state === 'finalized') {
-          return current as FinalizedMintOperation;
+        if (current && isTerminalOperation(current)) {
+          return current;
         }
 
         throw e;
@@ -283,15 +290,15 @@ export class MintOperationService {
     }
   }
 
-  async finalize(operationId: string): Promise<FinalizedMintOperation> {
+  async finalize(operationId: string): Promise<TerminalMintOperation> {
     const operation = await this.mintOperationRepository.getById(operationId);
     if (!operation) {
       throw new Error(`Operation ${operationId} not found`);
     }
 
-    if (operation.state === 'finalized') {
+    if (isTerminalOperation(operation)) {
       this.logger?.debug('Operation already finalized', { operationId });
-      return operation as FinalizedMintOperation;
+      return operation;
     }
 
     if (operation.state === 'pending') {
@@ -301,8 +308,8 @@ export class MintOperationService {
     if (operation.state === 'executing') {
       await this.recoverExecutingOperation(operation as ExecutingMintOperation);
       const updated = await this.mintOperationRepository.getById(operationId);
-      if (updated?.state === 'finalized') {
-        return updated as FinalizedMintOperation;
+      if (updated && isTerminalOperation(updated)) {
+        return updated;
       }
       if (updated?.state === 'pending') {
         throw new Error(`Operation ${operationId} remains pending after recovery`);
@@ -317,7 +324,7 @@ export class MintOperationService {
     );
   }
 
-  async redeem(mintUrl: string, quoteId: string): Promise<FinalizedMintOperation | null> {
+  async redeem(mintUrl: string, quoteId: string): Promise<TerminalMintOperation | null> {
     const quote = await this.mintQuoteRepository.getMintQuote(mintUrl, quoteId);
     if (!quote) {
       throw new Error(`Mint quote ${quoteId} not found for mint ${mintUrl}`);
@@ -331,8 +338,8 @@ export class MintOperationService {
       if (existing) {
         let latestState = existing.state;
 
-        if (existing.state === 'finalized') {
-          return existing as FinalizedMintOperation;
+        if (isTerminalOperation(existing)) {
+          return existing;
         }
 
         if (existing.state === 'init') {
@@ -347,8 +354,8 @@ export class MintOperationService {
         if (existing.state === 'executing') {
           await this.recoverExecutingOperation(existing as ExecutingMintOperation);
           const recovered = await this.mintOperationRepository.getById(existing.id);
-          if (recovered?.state === 'finalized') {
-            return recovered as FinalizedMintOperation;
+          if (recovered && isTerminalOperation(recovered)) {
+            return recovered;
           }
           latestState = recovered?.state ?? existing.state;
           if (recovered?.state === 'pending') {
@@ -367,7 +374,7 @@ export class MintOperationService {
           }
         }
 
-        if (latestState !== 'finalized') {
+        if (latestState !== 'finalized' && latestState !== 'failed') {
           this.logger?.warn('Mint operation is active; refusing to create a duplicate', {
             operationId: existing.id,
             state: latestState,
@@ -495,7 +502,7 @@ export class MintOperationService {
         return;
       }
 
-      if (current.state === 'finalized') {
+      if (isTerminalOperation(current)) {
         return;
       }
 
@@ -553,6 +560,16 @@ export class MintOperationService {
           });
           break;
         }
+        case 'TERMINAL': {
+          await this.failOperation(executing, result.error);
+          this.logger?.warn('Mint operation moved to failed during recovery', {
+            operationId: executing.id,
+            mintUrl: executing.mintUrl,
+            quoteId: executing.quoteId,
+            error: result.error,
+          });
+          break;
+        }
       }
     } finally {
       if (releaseLock) {
@@ -576,6 +593,11 @@ export class MintOperationService {
     const finalized = sorted.find((op) => op.state === 'finalized');
     if (finalized) {
       return finalized;
+    }
+
+    const terminal = sorted.find((op) => isTerminalOperation(op));
+    if (terminal) {
+      return terminal;
     }
 
     return sorted[0] ?? null;
@@ -718,6 +740,52 @@ export class MintOperationService {
     });
 
     return finalized;
+  }
+
+  private async failOperation(
+    op: ExecutingMintOperation,
+    error: string,
+  ): Promise<FailedMintOperation> {
+    const current = await this.mintOperationRepository.getById(op.id);
+    if (!current) {
+      throw new Error(`Operation ${op.id} not found`);
+    }
+
+    if (current.state === 'failed') {
+      return current as FailedMintOperation;
+    }
+
+    if (current.state === 'finalized') {
+      throw new Error(`Cannot fail operation ${op.id} in state ${current.state}`);
+    }
+
+    if (current.state !== 'executing') {
+      throw new Error(`Cannot fail operation ${op.id} in state ${current.state}`);
+    }
+
+    const failed: FailedMintOperation = {
+      ...(current as PendingOrLaterOperation),
+      state: 'failed',
+      updatedAt: Date.now(),
+      error,
+    };
+
+    await this.mintOperationRepository.update(failed);
+
+    await this.eventBus.emit('mint-op:finalized', {
+      mintUrl: failed.mintUrl,
+      operationId: failed.id,
+      operation: failed,
+    });
+
+    this.logger?.info('Mint operation failed during recovery', {
+      operationId: failed.id,
+      mintUrl: failed.mintUrl,
+      quoteId: failed.quoteId,
+      error,
+    });
+
+    return failed;
   }
 
   private async transitionToPending(

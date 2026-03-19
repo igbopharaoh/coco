@@ -6,6 +6,7 @@ import type {
   FinalizedMintOperation,
   MintOperation,
   PendingMintOperation,
+  TerminalMintOperation,
 } from '../../operations/mint/MintOperation.ts';
 
 const mintUrl = 'https://mint.test';
@@ -35,7 +36,7 @@ describe('MintOpsApi', () => {
       ...pendingOperation,
       state: 'executing',
     };
-    const finalizedOperation: FinalizedMintOperation = {
+    const finalizedOperation: TerminalMintOperation = {
       ...pendingOperation,
       state: 'finalized',
     };
@@ -98,7 +99,7 @@ describe('MintOpsApi', () => {
   });
 
   it('refresh reconciles pending and executing operations', async () => {
-    const finalizedOperation: FinalizedMintOperation = {
+    const finalizedOperation: TerminalMintOperation = {
       ...pendingOperation,
       state: 'finalized',
     };

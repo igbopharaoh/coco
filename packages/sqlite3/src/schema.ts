@@ -376,7 +376,7 @@ const MIGRATIONS: readonly Migration[] = [
         id TEXT PRIMARY KEY,
         mintUrl TEXT NOT NULL,
         quoteId TEXT NOT NULL,
-        state TEXT NOT NULL CHECK (state IN ('init', 'pending', 'executing', 'finalized')),
+        state TEXT NOT NULL CHECK (state IN ('init', 'pending', 'executing', 'finalized', 'failed')),
         createdAt INTEGER NOT NULL,
         updatedAt INTEGER NOT NULL,
         error TEXT,
@@ -403,7 +403,7 @@ const MIGRATIONS: readonly Migration[] = [
         id TEXT PRIMARY KEY,
         mintUrl TEXT NOT NULL,
         quoteId TEXT NOT NULL,
-        state TEXT NOT NULL CHECK (state IN ('init', 'pending', 'executing', 'finalized')),
+        state TEXT NOT NULL CHECK (state IN ('init', 'pending', 'executing', 'finalized', 'failed')),
         createdAt INTEGER NOT NULL,
         updatedAt INTEGER NOT NULL,
         error TEXT,
@@ -425,6 +425,52 @@ const MIGRATIONS: readonly Migration[] = [
           WHEN state = 'rolled_back' THEN 'finalized'
           ELSE state
         END,
+        createdAt,
+        updatedAt,
+        error,
+        method,
+        methodDataJson,
+        amount,
+        outputDataJson
+      FROM coco_cashu_mint_operations_legacy;
+
+      DROP TABLE coco_cashu_mint_operations_legacy;
+
+      CREATE INDEX IF NOT EXISTS idx_coco_cashu_mint_operations_state
+        ON coco_cashu_mint_operations(state);
+      CREATE INDEX IF NOT EXISTS idx_coco_cashu_mint_operations_mint
+        ON coco_cashu_mint_operations(mintUrl);
+      CREATE INDEX IF NOT EXISTS idx_coco_cashu_mint_operations_mint_quote
+        ON coco_cashu_mint_operations(mintUrl, quoteId);
+    `,
+  },
+  {
+    id: '020_mint_operations_failed_state',
+    sql: `
+      ALTER TABLE coco_cashu_mint_operations RENAME TO coco_cashu_mint_operations_legacy;
+
+      CREATE TABLE coco_cashu_mint_operations (
+        id TEXT PRIMARY KEY,
+        mintUrl TEXT NOT NULL,
+        quoteId TEXT NOT NULL,
+        state TEXT NOT NULL CHECK (state IN ('init', 'pending', 'executing', 'finalized', 'failed')),
+        createdAt INTEGER NOT NULL,
+        updatedAt INTEGER NOT NULL,
+        error TEXT,
+        method TEXT NOT NULL,
+        methodDataJson TEXT NOT NULL,
+        amount INTEGER,
+        outputDataJson TEXT
+      );
+
+      INSERT INTO coco_cashu_mint_operations (
+        id, mintUrl, quoteId, state, createdAt, updatedAt, error, method, methodDataJson, amount, outputDataJson
+      )
+      SELECT
+        id,
+        mintUrl,
+        quoteId,
+        state,
         createdAt,
         updatedAt,
         error,

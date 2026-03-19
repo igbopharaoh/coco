@@ -56,6 +56,22 @@ describe('IdbMintOperationRepository', () => {
           outputDataJson: JSON.stringify({ keep: [], send: [] }),
         },
       ],
+      [
+        'mint-op-failed',
+        {
+          id: 'mint-op-failed',
+          mintUrl: 'https://mint.test',
+          quoteId: 'quote-failed',
+          state: 'failed',
+          createdAt: 7,
+          updatedAt: 8,
+          error: 'quote expired',
+          method: 'bolt11',
+          methodDataJson: JSON.stringify({}),
+          amount: 300,
+          outputDataJson: JSON.stringify({ keep: [], send: [] }),
+        },
+      ],
     ]);
 
     const repository = new IdbMintOperationRepository({
@@ -101,6 +117,20 @@ describe('IdbMintOperationRepository', () => {
       method: 'bolt11',
       methodData: {},
       amount: 200,
+      outputData: { keep: [], send: [] },
+    });
+
+    await expect(repository.getById('mint-op-failed')).resolves.toEqual({
+      id: 'mint-op-failed',
+      mintUrl: 'https://mint.test',
+      quoteId: 'quote-failed',
+      state: 'failed',
+      createdAt: 7000,
+      updatedAt: 8000,
+      error: 'quote expired',
+      method: 'bolt11',
+      methodData: {},
+      amount: 300,
       outputData: { keep: [], send: [] },
     });
   });
