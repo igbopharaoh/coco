@@ -1,5 +1,5 @@
-import type { Proof, Wallet } from '@cashu/cashu-ts';
-import type { MintQuoteRepository, ProofRepository } from '../../repositories';
+import type { MintQuoteBolt11Response, Proof, Wallet } from '@cashu/cashu-ts';
+import type { ProofRepository } from '../../repositories';
 import type { ProofService } from '../../services/ProofService';
 import type { WalletService } from '../../services/WalletService';
 import type { MintService } from '../../services/MintService';
@@ -22,6 +22,7 @@ export interface MintMethodDefinitions {
   bolt11: {
     methodData: Record<string, never>;
     remoteState: 'UNPAID' | 'PAID' | 'ISSUED';
+    quote: MintQuoteBolt11Response;
   };
 }
 
@@ -30,6 +31,8 @@ export type MintMethodData<M extends MintMethod = MintMethod> =
   MintMethodDefinitions[M]['methodData'];
 export type MintMethodRemoteState<M extends MintMethod = MintMethod> =
   MintMethodDefinitions[M]['remoteState'];
+export type MintMethodQuoteSnapshot<M extends MintMethod = MintMethod> =
+  MintMethodDefinitions[M]['quote'];
 
 export interface MintMethodMeta<M extends MintMethod = MintMethod> {
   method: M;
@@ -37,7 +40,6 @@ export interface MintMethodMeta<M extends MintMethod = MintMethod> {
 }
 
 export interface BaseHandlerDeps {
-  mintQuoteRepository: MintQuoteRepository;
   proofRepository: ProofRepository;
   proofService: ProofService;
   walletService: WalletService;
@@ -50,6 +52,7 @@ export interface BaseHandlerDeps {
 export interface PrepareContext<M extends MintMethod = MintMethod> extends BaseHandlerDeps {
   operation: InitMintOperation<M>;
   wallet: Wallet;
+  importedQuote?: MintMethodQuoteSnapshot<M>;
 }
 
 export interface ExecuteContext<M extends MintMethod = MintMethod> extends BaseHandlerDeps {

@@ -1,7 +1,6 @@
 import type { Proof } from '@cashu/cashu-ts';
 import type {
   MintOperationRepository,
-  MintQuoteRepository,
   ProofRepository,
 } from '../../repositories';
 import type {
@@ -25,6 +24,7 @@ import type {
   MintMethodData,
   MintMethodMeta,
   PendingMintCheckResult,
+  MintMethodQuoteSnapshot,
 } from './MintMethodHandler';
 import type { MintService } from '../../services/MintService';
 import type { WalletService } from '../../services/WalletService';
@@ -50,7 +50,6 @@ import { OperationIdLock } from '../OperationIdLock';
 export class MintOperationService {
   private readonly handlerProvider: MintHandlerProvider;
   private readonly mintOperationRepository: MintOperationRepository;
-  private readonly mintQuoteRepository: MintQuoteRepository;
   private readonly proofRepository: ProofRepository;
   private readonly proofService: ProofService;
   private readonly mintService: MintService;
@@ -66,7 +65,6 @@ export class MintOperationService {
   constructor(
     handlerProvider: MintHandlerProvider,
     mintOperationRepository: MintOperationRepository,
-    mintQuoteRepository: MintQuoteRepository,
     proofRepository: ProofRepository,
     proofService: ProofService,
     mintService: MintService,
@@ -78,7 +76,6 @@ export class MintOperationService {
   ) {
     this.handlerProvider = handlerProvider;
     this.mintOperationRepository = mintOperationRepository;
-    this.mintQuoteRepository = mintQuoteRepository;
     this.proofRepository = proofRepository;
     this.proofService = proofService;
     this.mintService = mintService;
@@ -91,7 +88,6 @@ export class MintOperationService {
 
   private buildDeps() {
     return {
-      mintQuoteRepository: this.mintQuoteRepository,
       proofRepository: this.proofRepository,
       proofService: this.proofService,
       walletService: this.walletService,
@@ -116,21 +112,22 @@ export class MintOperationService {
 
   async init(
     mintUrl: string,
-    quoteId: string,
+    intent: { amount: number; unit: string },
     method: MintMethod = 'bolt11',
     methodData: MintMethodData = {},
+    options?: { quoteId?: string },
   ): Promise<InitMintOperation> {
     const trusted = await this.mintService.isTrustedMint(mintUrl);
     if (!trusted) {
       throw new UnknownMintError(`Mint ${mintUrl} is not trusted`);
     }
 
-    const quote = await this.mintQuoteRepository.getMintQuote(mintUrl, quoteId);
-    if (!quote) {
-      throw new Error(`Mint quote ${quoteId} not found for mint ${mintUrl}`);
+    if (!Number.isFinite(intent.amount) || intent.amount <= 0) {
+      throw new ProofValidationError('Amount must be a positive number');
     }
-    if (!quote.amount || quote.amount <= 0) {
-      throw new ProofValidationError(`Mint quote ${quoteId} has invalid amount`);
+
+    if (!intent.unit) {
+      throw new ProofValidationError('Unit is required');
     }
 
     const operationId = generateSubId();
@@ -141,22 +138,86 @@ export class MintOperationService {
         method,
         methodData,
       } as MintMethodMeta,
-      {
-        amount: quote.amount,
-        unit: quote.unit,
-      },
-      { quoteId },
+      intent,
+      options,
     );
 
     await this.mintOperationRepository.create(operation);
-    this.logger?.debug('Mint operation created', { operationId, mintUrl, quoteId, method });
+    this.logger?.debug('Mint operation created', {
+      operationId,
+      mintUrl,
+      quoteId: options?.quoteId,
+      method,
+      amount: intent.amount,
+      unit: intent.unit,
+    });
 
     return operation;
   }
 
+  async prepareNewQuote(
+    mintUrl: string,
+    amount: number,
+    unit = 'sat',
+    method: MintMethod = 'bolt11',
+    methodData: MintMethodData = {},
+  ): Promise<PendingMintOperation> {
+    const initOperation = await this.init(mintUrl, { amount, unit }, method, methodData);
+    return this.prepare(initOperation.id, {
+      quoteEvent: 'created',
+    });
+  }
+
+  async importQuote(
+    mintUrl: string,
+    quote: MintMethodQuoteSnapshot,
+    method: MintMethod = 'bolt11',
+    methodData: MintMethodData = {},
+    options?: { skipMintLock?: boolean },
+  ): Promise<PendingMintOperation> {
+    if (!quote.amount || quote.amount <= 0) {
+      throw new ProofValidationError(`Mint quote ${quote.quote} has invalid amount`);
+    }
+
+    const existing = await this.getOperationByQuote(mintUrl, quote.quote);
+    if (existing?.state === 'pending') {
+      return existing;
+    }
+    if (existing?.state === 'init') {
+      return this.prepare(existing.id, {
+        importedQuote: quote,
+        quoteEvent: 'added',
+        skipMintLock: options?.skipMintLock,
+      });
+    }
+    if (existing) {
+      throw new Error(
+        `Mint quote ${quote.quote} is already tracked by operation ${existing.id} in state ${existing.state}`,
+      );
+    }
+
+    const initOperation = await this.init(
+      mintUrl,
+      { amount: quote.amount, unit: quote.unit },
+      method,
+      methodData,
+      { quoteId: quote.quote },
+    );
+
+    return this.prepare(initOperation.id, {
+      importedQuote: quote,
+      quoteEvent: 'added',
+      skipMintLock: options?.skipMintLock,
+    });
+  }
+
   async prepare(
     operationId: string,
-    options?: { skipMintLock?: boolean },
+    options?: {
+      skipMintLock?: boolean;
+      importedQuote?: MintMethodQuoteSnapshot;
+      quoteEvent?: 'created' | 'added';
+    },
   ): Promise<PendingMintOperation> {
     const releaseLock = await this.acquireOperationLock(operationId);
     let releaseMintLock: (() => void) | null = null;
@@ -183,6 +244,7 @@ export class MintOperationService {
           ...this.buildDeps(),
           operation: initOp as any,
           wallet,
+          importedQuote: options?.importedQuote as any,
         });
 
         const pendingOp: PendingMintOperation = {
@@ -192,6 +254,8 @@ export class MintOperationService {
         };
 
         await this.mintOperationRepository.update(pendingOp);
+
+        await this.emitPreparedQuoteEvents(pendingOp, options?.quoteEvent);
         await this.eventBus.emit('mint-op:pending', {
           mintUrl: pendingOp.mintUrl,
           operationId: pendingOp.id,
@@ -334,11 +398,6 @@ export class MintOperationService {
   }
 
   async redeem(mintUrl: string, quoteId: string): Promise<TerminalMintOperation | null> {
-    const quote = await this.mintQuoteRepository.getMintQuote(mintUrl, quoteId);
-    if (!quote) {
-      throw new Error(`Mint quote ${quoteId} not found for mint ${mintUrl}`);
-    }
-
     let releaseMintLock: (() => void) | null = null;
     try {
       releaseMintLock = await this.mintScopedLock.acquire(mintUrl);
@@ -352,7 +411,9 @@ export class MintOperationService {
         }
 
         if (existing.state === 'init') {
-          const pending = await this.prepare(existing.id, { skipMintLock: true });
+          const pending = await this.prepare(existing.id, {
+            skipMintLock: true,
+          });
           return this.execute(pending.id);
         }
 
@@ -396,17 +457,7 @@ export class MintOperationService {
         }
       }
 
-      if (quote.state === 'ISSUED') {
-        this.logger?.info('Mint quote already in ISSUED state, skipping redeem', {
-          mintUrl,
-          quoteId,
-        });
-        return null;
-      }
-
-      const initOp = await this.init(mintUrl, quoteId, 'bolt11', {});
-      const pendingOp = await this.prepare(initOp.id, { skipMintLock: true });
-      return this.execute(pendingOp.id);
+      return null;
     } finally {
       if (releaseMintLock) {
         releaseMintLock();
@@ -616,6 +667,37 @@ export class MintOperationService {
     return this.mintOperationRepository.getPending();
   }
 
+  private async emitPreparedQuoteEvents(
+    operation: PendingOrLaterOperation,
+    eventKind?: 'created' | 'added',
+  ): Promise<void> {
+    const quotePayload = {
+      quote: operation.quoteId,
+      request: operation.request,
+      amount: operation.amount,
+      unit: operation.unit,
+      expiry: operation.expiry,
+      pubkey: operation.pubkey,
+      state: operation.lastObservedRemoteState ?? 'UNPAID',
+    };
+
+    if (eventKind === 'created') {
+      await this.eventBus.emit('mint-quote:created', {
+        mintUrl: operation.mintUrl,
+        quoteId: operation.quoteId,
+        quote: quotePayload,
+      });
+    }
+
+    if (eventKind === 'added') {
+      await this.eventBus.emit('mint-quote:added', {
+        mintUrl: operation.mintUrl,
+        quoteId: operation.quoteId,
+        quote: quotePayload,
+      });
+    }
+  }
+
   private async recoverInitOperation(op: InitMintOperation): Promise<void> {
     const releaseLock = await this.acquireOperationLock(op.id);
     try {
@@ -707,24 +789,24 @@ export class MintOperationService {
       throw new Error(`Cannot finalize operation ${op.id} in state ${current.state}`);
     }
 
-    const quote = await this.mintQuoteRepository.getMintQuote(current.mintUrl, current.quoteId);
-    if (!quote) {
-      throw new Error(`Mint quote ${current.quoteId} not found for mint ${current.mintUrl}`);
-    }
-
-    if (quote.state !== 'ISSUED') {
-      await this.mintQuoteRepository.setMintQuoteState(current.mintUrl, current.quoteId, 'ISSUED');
-      await this.eventBus.emit('mint-quote:state-changed', {
-        mintUrl: current.mintUrl,
-        quoteId: current.quoteId,
-        state: 'ISSUED',
-      });
-    }
+    await this.eventBus.emit('mint-quote:state-changed', {
+      mintUrl: current.mintUrl,
+      quoteId: current.quoteId,
+      state: 'ISSUED',
+    });
 
     await this.eventBus.emit('mint-quote:redeemed', {
       mintUrl: current.mintUrl,
       quoteId: current.quoteId,
-      quote: { ...quote, state: 'ISSUED' },
+      quote: {
+        quote: current.quoteId,
+        request: current.request,
+        amount: current.amount,
+        unit: current.unit,
+        expiry: current.expiry,
+        pubkey: current.pubkey,
+        state: 'ISSUED',
+      },
     });
 
     const finalized: FinalizedMintOperation = {

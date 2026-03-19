@@ -8,6 +8,7 @@ import type {
   PendingMintOperation,
   TerminalMintOperation,
 } from '../../operations/mint/MintOperation.ts';
+import type { MintQuoteBolt11Response } from '@cashu/cashu-ts';
 
 const mintUrl = 'https://mint.test';
 const quoteId = 'quote-1';
@@ -34,9 +35,18 @@ describe('MintOpsApi', () => {
   let api: MintOpsApi;
   let mintOperationService: MintOperationService;
   let pendingOperation: PendingMintOperation;
+  let quote: MintQuoteBolt11Response;
 
   beforeEach(() => {
     pendingOperation = makePendingOperation();
+    quote = {
+      quote: quoteId,
+      request: 'lnbc1test',
+      amount: 10,
+      unit: 'sat',
+      expiry: Math.floor(Date.now() / 1000) + 3600,
+      state: 'PAID',
+    };
     const executingOperation: ExecutingMintOperation = {
       ...pendingOperation,
       state: 'executing',
@@ -47,8 +57,8 @@ describe('MintOpsApi', () => {
     };
 
     mintOperationService = {
-      init: mock(async () => ({ id: pendingOperation.id })),
-      prepare: mock(async () => pendingOperation),
+      prepareNewQuote: mock(async () => pendingOperation),
+      importQuote: mock(async () => pendingOperation),
       execute: mock(async () => finalizedOperation),
       getOperation: mock(async () => pendingOperation),
       getOperationByQuote: mock(async () => pendingOperation),
@@ -69,16 +79,33 @@ describe('MintOpsApi', () => {
     api = new MintOpsApi(mintOperationService);
   });
 
-  it('prepare creates an operation and returns a pending mint operation', async () => {
+  it('prepare creates a new quote-backed operation and returns a pending mint operation', async () => {
     const result = await api.prepare({
       mintUrl,
-      quoteId,
+      amount: 10,
       method: 'bolt11',
       methodData: {},
     });
 
-    expect(mintOperationService.init).toHaveBeenCalledWith(mintUrl, quoteId, 'bolt11', {});
-    expect(mintOperationService.prepare).toHaveBeenCalledWith('op-1');
+    expect(mintOperationService.prepareNewQuote).toHaveBeenCalledWith(
+      mintUrl,
+      10,
+      'sat',
+      'bolt11',
+      {},
+    );
+    expect(result).toBe(pendingOperation);
+  });
+
+  it('importQuote delegates to the mint operation service', async () => {
+    const result = await api.importQuote({
+      mintUrl,
+      quote,
+      method: 'bolt11',
+      methodData: {},
+    });
+
+    expect(mintOperationService.importQuote).toHaveBeenCalledWith(mintUrl, quote, 'bolt11', {});
     expect(result).toBe(pendingOperation);
   });
 

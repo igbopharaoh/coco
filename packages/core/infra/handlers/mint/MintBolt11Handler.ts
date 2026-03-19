@@ -18,22 +18,22 @@ export class MintBolt11Handler implements MintMethodHandler<'bolt11'> {
   async prepare(
     ctx: PrepareContext<'bolt11'>,
   ): Promise<PendingMintOperation<'bolt11'> & MintMethodMeta<'bolt11'>> {
-    const quoteId = ctx.operation.quoteId;
-    if (!quoteId) {
-      throw new Error('Mint quote ID is required for bolt11 prepare');
-    }
-
-    const quote = await ctx.mintQuoteRepository.getMintQuote(
-      ctx.operation.mintUrl,
-      quoteId,
-    );
-
-    if (!quote) {
-      throw new Error(`Mint quote ${quoteId} not found`);
-    }
+    const quote = ctx.importedQuote ?? (await ctx.wallet.createMintQuoteBolt11(ctx.operation.amount));
 
     if (!quote.amount || quote.amount <= 0) {
-      throw new Error(`Mint quote ${quoteId} has invalid amount`);
+      throw new Error(`Mint quote ${quote.quote} has invalid amount`);
+    }
+
+    if (quote.amount !== ctx.operation.amount) {
+      throw new Error(
+        `Mint quote ${quote.quote} amount ${quote.amount} does not match requested amount ${ctx.operation.amount}`,
+      );
+    }
+
+    if (quote.unit !== ctx.operation.unit) {
+      throw new Error(
+        `Mint quote ${quote.quote} unit ${quote.unit} does not match requested unit ${ctx.operation.unit}`,
+      );
     }
 
     const outputData = await ctx.proofService.createOutputsAndIncrementCounters(

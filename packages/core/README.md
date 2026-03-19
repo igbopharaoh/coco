@@ -69,22 +69,21 @@ const unsubscribe = manager.on('counter:updated', (c) => {
 // Register a mint
 await manager.mint.addMint('https://nofees.testnut.cashu.space');
 
-// Create a mint quote, pay externally, then redeem
-const mintQuote = await manager.quotes.createMintQuote('https://nofees.testnut.cashu.space', 100);
+// Create a mint operation, pay externally, then redeem
+const pendingMint = await manager.ops.mint.prepare({
+  mintUrl: 'https://nofees.testnut.cashu.space',
+  amount: 100,
+  method: 'bolt11',
+  methodData: {},
+});
 
 // Optionally, wait via subscription API instead of polling
 await manager.subscription.awaitMintQuotePaid(
   'https://nofees.testnut.cashu.space',
-  mintQuote.quote,
+  pendingMint.quoteId,
 );
 
-// pay mintQuote.request externally, then:
-const pendingMint = await manager.ops.mint.prepare({
-  mintUrl: 'https://nofees.testnut.cashu.space',
-  quoteId: mintQuote.quote,
-  method: 'bolt11',
-  methodData: {},
-});
+// pay pendingMint.request externally, then:
 await manager.ops.mint.execute(pendingMint.id);
 
 // Check balances
@@ -260,7 +259,6 @@ In-memory reference implementations are provided under `repositories/memory/` fo
 
 ### QuotesApi
 
-- `createMintQuote(mintUrl: string, amount: number): Promise<MintQuoteResponse>`
 - `prepareMeltBolt11(mintUrl: string, invoice: string): Promise<PreparedMeltOperation>` (deprecated)
 - `executeMelt(operationId: string): Promise<PendingMeltOperation | FinalizedMeltOperation>` (deprecated)
 - `executeMeltByQuote(mintUrl: string, quoteId: string): Promise<PendingMeltOperation | FinalizedMeltOperation | null>` (deprecated)
@@ -270,8 +268,6 @@ In-memory reference implementations are provided under `repositories/memory/` fo
 - `getMeltOperation(operationId: string): Promise<MeltOperation | null>`
 - `getPendingMeltOperations(): Promise<MeltOperation[]>`
 - `getPreparedMeltOperations(): Promise<PreparedMeltOperation[]>`
-- `addMintQuote(mintUrl: string, quotes: MintQuoteResponse[]): Promise<{ added: string[]; skipped: string[] }>`
-- `requeuePaidMintQuotes(mintUrl?: string): Promise<{ requeued: string[] }>`
 
 ### SubscriptionApi
 

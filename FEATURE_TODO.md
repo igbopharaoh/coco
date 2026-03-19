@@ -41,6 +41,7 @@
 
 ### Phase 1: Expand the mint operation model
 
+- Scope note: this phase is limited to mint-operation types, persisted schema/repository shape, and adapter coverage. Service/API orchestration changes for quote-less `init`, remote quote creation during `prepare`, and watcher/processor-driven state refresh land in later phases.
 - Extend `MintOperation` types to include quote snapshot data needed for execution, recovery, history, and watching.
 - Persist the latest observed remote quote state as diagnostic / history metadata on the operation, without making it the authoritative lifecycle state.
 - Add structured terminal failure metadata so quote-oriented flows do not rely on parsing error strings.
@@ -52,7 +53,6 @@
 - Add operation-oriented APIs for:
   - preparing a new mint quote-backed operation in one API call
   - importing an existing mint quote into a prepared pending operation in one API call
-  - redeeming by quote
   - listing tracked mint quote operations
 - Make `MintOperationService` own quote creation/import bookkeeping.
 - Keep the internal lifecycle explicit:
@@ -157,8 +157,8 @@
 
 - [x] Define the operation-owned quote snapshot shape for mint operations.
 - [x] Define the init-time local intent shape for mint operations separately from the pending quote snapshot shape, with `method`, `unit`, and `amount` persisted before any quote exists.
-- [x] Allow `init` mint operations to exist before a remote quote exists, so new-quote prepare does not require a persisted `quoteId`, `request`, or quote row up front.
-- [x] Make `quoteId` absent from `init` mint operations and introduce it during `prepare`, either from an imported quote snapshot or from the newly created remote mint quote.
+- [x] Allow the persisted mint-operation model to represent `init` operations before a remote quote exists, so later service work is not forced to persist `quoteId`, `request`, or a quote row up front.
+- [x] Make `quoteId` absent from persisted `init` mint operations and introduce it during `prepare`, either from an imported quote snapshot or from the newly created remote mint quote.
 - [ ] Decide whether `quoteId` becomes optional on one unified persisted mint-operation shape or whether `init` and pending+ states should use separate persisted field requirements.
 - [x] Add `lastObservedRemoteState` and `lastObservedRemoteStateAt` to mint operations as observational metadata.
 - [x] Make remote observation state method-owned rather than globally quote-owned, so future mint methods can define different remote-state unions.
@@ -174,31 +174,31 @@
 - [x] Update sqlite-bun mint operation repository and schema.
 - [x] Update expo-sqlite mint operation repository and schema.
 - [x] Update indexeddb mint operation repository and schema.
-- [x] Add repository round-trip tests for the new fields in every adapter with explicit coverage for restart / recovery scenarios.
+- [x] Add repository round-trip / persisted-shape coverage for the new fields in every adapter, plus migration coverage where applicable.
 - [ ] Keep the legacy mint quote repository shape stable enough to support temporary startup reconciliation.
 
 ### Service and API TODOs
 
-- [ ] Redefine `ops.mint.prepare(...)` as a one-call API that internally performs `MintOperationService.init()` followed by `MintOperationService.prepare()`.
-- [ ] Add `ops.mint` API support for importing an existing mint quote into a prepared pending operation.
-- [ ] Keep `MintOperationService.init()` as the first durable local state transition; do not collapse the internal lifecycle into a single persisted step.
-- [ ] Split the API and service contracts between:
+- [x] Redefine `ops.mint.prepare(...)` as a one-call API that internally performs `MintOperationService.init()` followed by `MintOperationService.prepare()`.
+- [x] Add `ops.mint` API support for importing an existing mint quote into a prepared pending operation.
+- [x] Keep `MintOperationService.init()` as the first durable local state transition; do not collapse the internal lifecycle into a single persisted step.
+- [x] Split the API and service contracts between:
   - new-quote prepare, which should not require a pre-existing `quoteId` and should derive `quoteId` during `prepare`
   - import-existing-quote prepare, which should accept a pre-existing quote snapshot / `quoteId`
-- [ ] Redefine `MintOperationService.init()` so new-quote init persists only local creation intent, mirroring `MeltOperationService.init()`, instead of validating a pre-existing quote row.
-- [ ] Redefine `MintOperationService.prepare()` so it performs the melt-style orchestration step:
+- [x] Redefine `MintOperationService.init()` so new-quote init persists only local creation intent, mirroring `MeltOperationService.init()`, instead of validating a pre-existing quote row.
+- [x] Redefine `MintOperationService.prepare()` so it performs the melt-style orchestration step:
   - for new quotes, call the handler to create the remote quote during `prepare`
   - for imported quotes, normalize and validate the imported quote snapshot during `prepare`
   - only then derive deterministic outputs and persist the fully prepared `pending` operation with `quoteId` and the full quote snapshot attached
-- [ ] Refactor `MintBolt11Handler.prepare()` to mirror `MeltBolt11Handler.prepare()` by creating or ingesting the quote snapshot first and returning a complete pending-operation payload.
-- [ ] Move quote validation that currently happens in mint `init()` into the appropriate create/import `prepare()` path so quote-less init rows remain valid.
+- [x] Refactor `MintBolt11Handler.prepare()` to mirror `MeltBolt11Handler.prepare()` by creating or ingesting the quote snapshot first and returning a complete pending-operation payload.
+- [x] Move quote validation that currently happens in mint `init()` into the appropriate create/import `prepare()` path so quote-less init rows remain valid.
 - [ ] Ensure the prepare path uses the same mint-scoped locking guarantees as melt while creating the quote and materializing deterministic outputs.
 - [ ] Add any missing operation query APIs needed by watcher / processor / history flows.
 - [ ] Refactor `MintOperationService` to create and manage quote-backed operations without `MintQuoteRepository`.
 - [ ] Remove `MintQuoteService` as the primary orchestration path while keeping `MintQuoteRepository` available temporarily for startup reconciliation.
-- [ ] Refactor `MintBolt11Handler` and mint method deps to consume operation-owned quote data.
-- [ ] Remove mint quote methods from `QuotesApi` while keeping melt quote methods intact for now.
-- [ ] Decide whether `manager.quotes` remains as a melt-only API or keeps temporary deprecated mint shims during migration.
+- [x] Refactor `MintBolt11Handler` and mint method deps to consume operation-owned quote data.
+- [x] Remove mint quote methods from `QuotesApi` while keeping melt quote methods intact for now.
+- [x] Decide whether `manager.quotes` remains as a melt-only API or keeps temporary deprecated mint shims during migration.
 
 ### Watcher and processor TODOs
 
@@ -210,6 +210,7 @@
 - [ ] Add any missing mint-operation events for creation / import if needed.
 - [ ] Replace the legacy mint quote watcher with an operation-based watcher that subscribes from mint operations.
 - [ ] Rebuild the mint quote processor to queue from mint operations.
+- [ ] Remove `MintOperationService.redeem(mintUrl, quoteId)` once the processor no longer delegates quote-id work through the legacy mint-quote service path.
 - [ ] Rework startup bootstrap to scan mint operations instead of mint quote rows.
 - [ ] Add a startup reconciliation pass that scans legacy mint quote rows and backfills missing mint operations before watcher / processor / recovery startup.
 - [ ] Rework `resumeSubscriptions()` to re-establish operation-based watcher / processor / recovery coverage for mint operations, not just restart transports.

@@ -1,6 +1,7 @@
 import type {
   MintMethod,
   MintMethodData,
+  MintMethodQuoteSnapshot,
   MintOperation,
   MintOperationService,
   PendingMintCheckResult,
@@ -15,8 +16,23 @@ export type PrepareMintInput<TSupported extends MintMethod = DefaultSupportedMin
   [M in TSupported]: {
     /** Mint that will execute the quote-backed mint operation. */
     mintUrl: string;
-    /** Quote ID that has been paid externally. */
-    quoteId: string;
+    /** Amount to request from the mint. */
+    amount: number;
+    /** Unit to request from the mint. Defaults to `sat`. */
+    unit?: string;
+    /** Mint method to prepare, for example `bolt11`. */
+    method: M;
+    /** Method-specific payload required for the selected mint method. */
+    methodData: MintMethodData<M>;
+  };
+}[TSupported];
+
+export type ImportMintQuoteInput<TSupported extends MintMethod = DefaultSupportedMintMethod> = {
+  [M in TSupported]: {
+    /** Mint that issued the existing quote. */
+    mintUrl: string;
+    /** Existing quote snapshot to track as an operation. */
+    quote: MintMethodQuoteSnapshot<M>;
     /** Mint method to prepare, for example `bolt11`. */
     method: M;
     /** Method-specific payload required for the selected mint method. */
@@ -57,16 +73,28 @@ export class MintOpsApi<TSupported extends MintMethod = DefaultSupportedMintMeth
   constructor(private readonly mintOperationService: MintOperationService) {}
 
   /**
-   * Creates a mint operation and persists its deterministic outputs without executing it.
+   * Creates a new remote quote, then persists a prepared mint operation without executing it.
    */
   async prepare(input: PrepareMintInput<TSupported>): Promise<PendingMintOperation> {
-    const initOperation = await this.mintOperationService.init(
+    return this.mintOperationService.prepareNewQuote(
       input.mintUrl,
-      input.quoteId,
+      input.amount,
+      input.unit ?? 'sat',
       input.method,
       input.methodData,
     );
-    return this.mintOperationService.prepare(initOperation.id);
+  }
+
+  /**
+   * Imports an existing quote snapshot into a prepared mint operation without executing it.
+   */
+  async importQuote(input: ImportMintQuoteInput<TSupported>): Promise<PendingMintOperation> {
+    return this.mintOperationService.importQuote(
+      input.mintUrl,
+      input.quote,
+      input.method,
+      input.methodData,
+    );
   }
 
   /**

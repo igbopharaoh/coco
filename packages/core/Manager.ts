@@ -169,7 +169,7 @@ export async function initializeCoco(config: CocoConfig): Promise<Manager> {
   const mintQuoteProcessorConfig = config.processors?.mintQuoteProcessor;
   if (!mintQuoteProcessorConfig?.disabled) {
     await coco.enableMintQuoteProcessor(mintQuoteProcessorConfig);
-    await coco.quotes.requeuePaidMintQuotes();
+    await coco.requeuePaidMintQuotes();
   }
 
   // Recover any pending send operations from previous session
@@ -573,7 +573,7 @@ export class Manager {
       const wasEnabled = await this.enableMintQuoteProcessor(mintQuoteProcessorConfig);
       // Only requeue if we actually re-enabled (not already running)
       if (wasEnabled) {
-        await this.quotes.requeuePaidMintQuotes();
+        await this.requeuePaidMintQuotes();
       }
     }
 
@@ -582,6 +582,10 @@ export class Manager {
 
   private getChildLogger(moduleName: string): Logger {
     return this.logger.child ? this.logger.child({ module: moduleName }) : this.logger;
+  }
+
+  async requeuePaidMintQuotes(mintUrl?: string): Promise<{ requeued: string[] }> {
+    return this.mintQuoteService.requeuePaidMintQuotes(mintUrl);
   }
 
   private createEventBus(): EventBus<CoreEvents> {
@@ -789,7 +793,6 @@ export class Manager {
     const mintOperationService = new MintOperationService(
       mintHandlerProvider,
       repositories.mintOperationRepository,
-      repositories.mintQuoteRepository,
       repositories.proofRepository,
       proofService,
       mintService,
@@ -885,9 +888,7 @@ export class Manager {
       walletApiLogger,
     );
     const quotes = new QuotesApi(
-      this.mintQuoteService,
       this.meltQuoteService,
-      this.mintOperationService,
       this.meltOperationService,
     );
     const keyring = new KeyRingApi(this.keyRingService);

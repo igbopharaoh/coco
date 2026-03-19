@@ -1,5 +1,5 @@
 import { describe, it, beforeEach, expect, mock, type Mock } from 'bun:test';
-import { OutputData, type Proof } from '@cashu/cashu-ts';
+import { OutputData, type MintQuoteBolt11Response, type Proof } from '@cashu/cashu-ts';
 import { EventBus } from '../../events/EventBus';
 import type { CoreEvents } from '../../events/types';
 import { MintOperationService } from '../../operations/mint/MintOperationService';
@@ -16,7 +16,6 @@ import type {
 } from '../../operations/mint/MintMethodHandler';
 import type { MintHandlerProvider } from '../../infra/handlers/mint';
 import { MemoryMintOperationRepository } from '../../repositories/memory/MemoryMintOperationRepository';
-import { MemoryMintQuoteRepository } from '../../repositories/memory/MemoryMintQuoteRepository';
 import { MemoryProofRepository } from '../../repositories/memory/MemoryProofRepository';
 import type { MintService } from '../../services/MintService';
 import type { WalletService } from '../../services/WalletService';
@@ -31,7 +30,6 @@ describe('MintOperationService', () => {
   const keysetId = 'keyset-1';
 
   let operationRepo: MemoryMintOperationRepository;
-  let mintQuoteRepo: MemoryMintQuoteRepository;
   let proofRepo: MemoryProofRepository;
   let proofService: ProofService;
   let mintService: MintService;
@@ -108,19 +106,8 @@ describe('MintOperationService', () => {
 
   beforeEach(async () => {
     operationRepo = new MemoryMintOperationRepository();
-    mintQuoteRepo = new MemoryMintQuoteRepository();
     proofRepo = new MemoryProofRepository();
     eventBus = new EventBus<CoreEvents>();
-
-    await mintQuoteRepo.addMintQuote({
-      mintUrl,
-      quote: quoteId,
-      request: 'lnbc1test',
-      amount: 10,
-      unit: 'sat',
-      expiry: Math.floor(Date.now() / 1000) + 3600,
-      state: 'PAID',
-    });
 
     const mockPrepare = mock(async ({ operation }: { operation: InitMintOperation }) => {
       return makePendingOp(operation.id);
@@ -177,7 +164,6 @@ describe('MintOperationService', () => {
     service = new MintOperationService(
       handlerProvider,
       operationRepo,
-      mintQuoteRepo,
       proofRepo,
       proofService,
       mintService,
@@ -187,18 +173,75 @@ describe('MintOperationService', () => {
     );
   });
 
-  it('redeem runs init -> pending -> execute and finalizes quote/proofs', async () => {
+  it('prepareNewQuote persists a pending operation and emits mint-quote:created', async () => {
+    const createdEvents: Array<CoreEvents['mint-quote:created']> = [];
+    eventBus.on('mint-quote:created', (event) => {
+      createdEvents.push(event);
+    });
+
+    (handler.prepare as Mock<any>).mockImplementationOnce(async ({ operation }: { operation: InitMintOperation }) => ({
+      ...makePendingOp(operation.id),
+      quoteId: 'quote-created',
+      request: 'lnbc1created',
+      lastObservedRemoteState: 'UNPAID',
+    }));
+
+    const pending = await service.prepareNewQuote(mintUrl, 10, 'sat');
+
+    expect(pending.state).toBe('pending');
+    expect(pending.quoteId).toBe('quote-created');
+    expect(createdEvents).toHaveLength(1);
+    expect(createdEvents[0]?.quoteId).toBe('quote-created');
+    expect(createdEvents[0]?.quote.request).toBe('lnbc1created');
+    expect(createdEvents[0]?.quote.state).toBe('UNPAID');
+  });
+
+  it('importQuote persists a pending operation and emits mint-quote:added', async () => {
+    const addedEvents: Array<CoreEvents['mint-quote:added']> = [];
+    eventBus.on('mint-quote:added', (event) => {
+      addedEvents.push(event);
+    });
+
+    const importedQuote: MintQuoteBolt11Response = {
+      quote: 'quote-imported',
+      request: 'lnbc1imported',
+      amount: 12,
+      unit: 'sat',
+      expiry: Math.floor(Date.now() / 1000) + 3600,
+      state: 'PAID',
+    };
+
+    (handler.prepare as Mock<any>).mockImplementationOnce(async ({ operation }: { operation: InitMintOperation }) => ({
+      ...makePendingOp(operation.id),
+      quoteId: importedQuote.quote,
+      amount: importedQuote.amount,
+      request: importedQuote.request,
+      expiry: importedQuote.expiry,
+      lastObservedRemoteState: importedQuote.state,
+    }));
+
+    const pending = await service.importQuote(mintUrl, importedQuote, 'bolt11', {});
+
+    expect(pending.state).toBe('pending');
+    expect(pending.quoteId).toBe(importedQuote.quote);
+    expect(addedEvents).toHaveLength(1);
+    expect(addedEvents[0]?.quoteId).toBe(importedQuote.quote);
+    expect(addedEvents[0]?.quote.request).toBe(importedQuote.request);
+    expect(addedEvents[0]?.quote.state).toBe(importedQuote.state);
+  });
+
+  it('redeem runs init -> pending -> execute for an existing tracked operation', async () => {
     const redeemedEvents: Array<CoreEvents['mint-quote:redeemed']> = [];
     eventBus.on('mint-quote:redeemed', (event) => {
       redeemedEvents.push(event);
     });
 
+    const initOp = makeInitOp('mint-op-redeem');
+    await operationRepo.create(initOp);
+
     const finalized = await service.redeem(mintUrl, quoteId);
 
     expect(finalized?.state).toBe('finalized');
-
-    const quote = await mintQuoteRepo.getMintQuote(mintUrl, quoteId);
-    expect(quote?.state).toBe('ISSUED');
 
     const stored = await operationRepo.getByQuoteId(mintUrl, quoteId);
     expect(stored.length).toBe(1);
@@ -210,9 +253,12 @@ describe('MintOperationService', () => {
 
     expect(redeemedEvents.length).toBe(1);
     expect(redeemedEvents[0]?.quoteId).toBe(quoteId);
+    expect(redeemedEvents[0]?.quote.state).toBe('ISSUED');
   });
 
   it('redeem is idempotent after finalize', async () => {
+    await operationRepo.create(makeInitOp('mint-op-idempotent'));
+
     const first = await service.redeem(mintUrl, quoteId);
     const second = await service.redeem(mintUrl, quoteId);
 
@@ -233,9 +279,6 @@ describe('MintOperationService', () => {
 
     const stored = await operationRepo.getById(op.id);
     expect(stored?.state).toBe('finalized');
-
-    const quote = await mintQuoteRepo.getMintQuote(mintUrl, quoteId);
-    expect(quote?.state).toBe('ISSUED');
   });
 
   it('recoverExecutingOperation returns to pending when quote was not issued remotely', async () => {
@@ -252,9 +295,6 @@ describe('MintOperationService', () => {
     const stored = await operationRepo.getById(op.id);
     expect(stored?.state).toBe('pending');
     expect(stored?.error).toBe('Recovered: quote not issued remotely');
-
-    const quote = await mintQuoteRepo.getMintQuote(mintUrl, quoteId);
-    expect(quote?.state).toBe('PAID');
   });
 
   it('recoverExecutingOperation returns to pending when proofs are not recoverable', async () => {
@@ -282,11 +322,9 @@ describe('MintOperationService', () => {
     await service.recoverExecutingOperation(op);
 
     const stored = await operationRepo.getById(op.id);
-    const quote = await mintQuoteRepo.getMintQuote(mintUrl, quoteId);
 
     expect(stored?.state).toBe('failed');
     expect(stored?.error).toBe(`Recovered: quote ${quoteId} expired while executing mint`);
-    expect(quote?.state).toBe('PAID');
   });
 
   it('redeem returns a failed operation when recovery finds an expired quote', async () => {
@@ -315,6 +353,10 @@ describe('MintOperationService', () => {
     expect(finalized?.state).toBe('finalized');
   });
 
+  it('redeem returns null when no tracked operation exists for the quote', async () => {
+    await expect(service.redeem(mintUrl, quoteId)).resolves.toBeNull();
+  });
+
   it('execute finalizes when already issued proofs cannot be restored', async () => {
     const pendingOp = makePendingOp('pending-2');
     await operationRepo.create(pendingOp);
@@ -325,7 +367,6 @@ describe('MintOperationService', () => {
     const finalized = await service.execute(pendingOp.id);
 
     const stored = await operationRepo.getById(pendingOp.id);
-    const quote = await mintQuoteRepo.getMintQuote(mintUrl, quoteId);
 
     expect(finalized.state).toBe('finalized');
     expect(finalized.error).toBe(
@@ -335,7 +376,6 @@ describe('MintOperationService', () => {
     expect(stored?.error).toBe(
       `Recovered issued quote ${pendingOp.quoteId} but no proofs could be restored`,
     );
-    expect(quote?.state).toBe('ISSUED');
   });
 
   it('recoverPendingOperations cleans init operations and reconciles stale pending ones', async () => {

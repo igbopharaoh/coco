@@ -4,16 +4,13 @@ import { MintBolt11Handler } from '../../infra/handlers/mint/MintBolt11Handler';
 import { MintOperationError } from '../../models/Error';
 import { EventBus } from '../../events/EventBus';
 import type { CoreEvents } from '../../events/types';
-import type { PendingContext, RecoverExecutingContext } from '../../operations/mint';
+import type { PendingContext, PrepareContext, RecoverExecutingContext } from '../../operations/mint';
 import { serializeOutputData } from '../../utils';
 import type { ProofService } from '../../services/ProofService';
 import type { WalletService } from '../../services/WalletService';
 import type { MintService } from '../../services/MintService';
 import type { MintAdapter } from '../../infra';
-import type {
-  MintQuoteRepository,
-  ProofRepository,
-} from '../../repositories';
+import type { ProofRepository } from '../../repositories';
 import type { Logger } from '../../logging/Logger';
 
 describe('MintBolt11Handler', () => {
@@ -25,7 +22,6 @@ describe('MintBolt11Handler', () => {
   let wallet: Wallet;
   let mintAdapter: MintAdapter;
   let proofService: ProofService;
-  let mintQuoteRepository: MintQuoteRepository;
   let proofRepository: ProofRepository;
   let walletService: WalletService;
   let mintService: MintService;
@@ -49,28 +45,53 @@ describe('MintBolt11Handler', () => {
 
   const operation = {
     id: 'op-1',
-    state: 'executing' as const,
+    state: 'init' as const,
     mintUrl,
-    quoteId,
     amount: 10,
     unit: 'sat',
-    request: 'lnbc1test',
-    expiry: Math.floor(Date.now() / 1000) + 3600,
-    lastObservedRemoteState: 'PAID' as const,
-    lastObservedRemoteStateAt: Date.now(),
-    outputData,
     method: 'bolt11' as const,
     methodData: {},
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
 
-  const buildRecoverContext = (): RecoverExecutingContext<'bolt11'> => ({
+  const quote: MintQuoteBolt11Response = {
+    quote: quoteId,
+    request: 'lnbc1test',
+    amount: 10,
+    unit: 'sat',
+    expiry: Math.floor(Date.now() / 1000) + 3600,
+    state: 'PAID',
+  };
+
+  const executingOperation = {
+    ...operation,
+    state: 'executing' as const,
+    quoteId,
+    request: quote.request,
+    expiry: quote.expiry,
+    lastObservedRemoteState: 'PAID' as const,
+    lastObservedRemoteStateAt: Date.now(),
+    outputData,
+  };
+
+  const buildPrepareContext = (): PrepareContext<'bolt11'> => ({
     operation,
     wallet,
     mintAdapter,
     proofService,
-    mintQuoteRepository,
+    proofRepository,
+    walletService,
+    mintService,
+    eventBus,
+    logger,
+  });
+
+  const buildRecoverContext = (): RecoverExecutingContext<'bolt11'> => ({
+    operation: executingOperation,
+    wallet,
+    mintAdapter,
+    proofService,
     proofRepository,
     walletService,
     mintService,
@@ -80,13 +101,12 @@ describe('MintBolt11Handler', () => {
 
   const buildPendingContext = (): PendingContext<'bolt11'> => ({
     operation: {
-      ...operation,
+      ...executingOperation,
       state: 'pending',
     },
     wallet,
     mintAdapter,
     proofService,
-    mintQuoteRepository,
     proofRepository,
     walletService,
     mintService,
@@ -98,28 +118,22 @@ describe('MintBolt11Handler', () => {
     handler = new MintBolt11Handler();
 
     wallet = {
+      createMintQuoteBolt11: mock(async () => quote),
       mintProofsBolt11: mock(async () => {
         throw new MintOperationError(20007, 'Quote expired');
       }),
     } as unknown as Wallet;
 
     mintAdapter = {
-      checkMintQuoteState: mock(async (): Promise<MintQuoteBolt11Response> => ({
-        quote: quoteId,
-        request: 'lnbc1test',
-        amount: 10,
-        unit: 'sat',
-        expiry: Math.floor(Date.now() / 1000) + 3600,
-        state: 'PAID',
-      })),
+      checkMintQuoteState: mock(async (): Promise<MintQuoteBolt11Response> => quote),
     } as unknown as MintAdapter;
 
     proofService = {
+      createOutputsAndIncrementCounters: mock(async () => ({ keep: outputData.keep, send: [] })),
       saveProofs: mock(async () => {}),
       recoverProofsFromOutputData: mock(async () => []),
     } as unknown as ProofService;
 
-    mintQuoteRepository = {} as MintQuoteRepository;
     proofRepository = {} as ProofRepository;
     walletService = {} as WalletService;
     mintService = {} as MintService;
@@ -137,6 +151,38 @@ describe('MintBolt11Handler', () => {
       });
       expect((wallet.mintProofsBolt11 as Mock<any>).mock.calls.length).toBe(1);
       expect((proofService.saveProofs as Mock<any>).mock.calls.length).toBe(0);
+    });
+  });
+
+  describe('prepare', () => {
+    it('creates a remote quote when no imported quote is provided', async () => {
+      const result = await handler.prepare(buildPrepareContext());
+
+      expect((wallet.createMintQuoteBolt11 as Mock<any>).mock.calls).toHaveLength(1);
+      expect(result.quoteId).toBe(quoteId);
+      expect(result.amount).toBe(quote.amount);
+      expect(result.request).toBe(quote.request);
+      expect(result.outputData.keep).toHaveLength(1);
+      expect(result.outputData.send).toEqual([]);
+      expect(result.outputData.keep[0]?.blindedMessage).toEqual(outputData.keep[0]?.blindedMessage);
+      expect(result.lastObservedRemoteState).toBe('PAID');
+    });
+
+    it('uses the imported quote snapshot without creating a new remote quote', async () => {
+      const importedQuote = {
+        ...quote,
+        quote: 'quote-imported',
+        state: 'UNPAID' as const,
+      };
+
+      const result = await handler.prepare({
+        ...buildPrepareContext(),
+        importedQuote,
+      });
+
+      expect((wallet.createMintQuoteBolt11 as Mock<any>).mock.calls).toHaveLength(0);
+      expect(result.quoteId).toBe(importedQuote.quote);
+      expect(result.lastObservedRemoteState).toBe('UNPAID');
     });
   });
 

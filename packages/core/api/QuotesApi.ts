@@ -1,4 +1,4 @@
-import type { MeltQuoteBolt11Response, MintQuoteBolt11Response } from '@cashu/cashu-ts';
+import type { MeltQuoteBolt11Response } from '@cashu/cashu-ts';
 import type {
   FinalizedMeltOperation,
   MeltOperation,
@@ -7,32 +7,17 @@ import type {
   PendingCheckResult,
   PreparedMeltOperation,
 } from '@core/operations/melt';
-import type { MintOperationService } from '@core/operations/mint';
-import type { MintQuoteService, MeltQuoteService } from '@core/services';
+import type { MeltQuoteService } from '@core/services';
 
 export class QuotesApi {
-  private mintQuoteService: MintQuoteService;
   private meltQuoteService: MeltQuoteService;
-  private mintOperationService: MintOperationService;
   private meltOperationService: MeltOperationService;
   constructor(
-    mintQuoteService: MintQuoteService,
     meltQuoteService: MeltQuoteService,
-    mintOperationService: MintOperationService,
     meltOperationService: MeltOperationService,
   ) {
-    this.mintQuoteService = mintQuoteService;
     this.meltQuoteService = meltQuoteService;
-    this.mintOperationService = mintOperationService;
     this.meltOperationService = meltOperationService;
-  }
-
-  async createMintQuote(mintUrl: string, amount: number): Promise<MintQuoteBolt11Response> {
-    return this.mintQuoteService.createMintQuote(mintUrl, amount);
-  }
-
-  async redeemMintQuote(mintUrl: string, quoteId: string): Promise<void> {
-    await this.mintOperationService.redeem(mintUrl, quoteId);
   }
 
   /**
@@ -153,16 +138,5 @@ export class QuotesApi {
    */
   async getPreparedMeltOperations(): Promise<PreparedMeltOperation[]> {
     return this.meltOperationService.getPreparedOperations();
-  }
-
-  async addMintQuote(
-    mintUrl: string,
-    quotes: MintQuoteBolt11Response[],
-  ): Promise<{ added: string[]; skipped: string[] }> {
-    return this.mintQuoteService.addExistingMintQuotes(mintUrl, quotes);
-  }
-
-  async requeuePaidMintQuotes(mintUrl?: string): Promise<{ requeued: string[] }> {
-    return this.mintQuoteService.requeuePaidMintQuotes(mintUrl);
   }
 }
