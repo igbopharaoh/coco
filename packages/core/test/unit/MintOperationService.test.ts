@@ -173,10 +173,10 @@ describe('MintOperationService', () => {
     );
   });
 
-  it('prepareNewQuote persists a pending operation and emits mint-quote:created', async () => {
-    const createdEvents: Array<CoreEvents['mint-quote:created']> = [];
-    eventBus.on('mint-quote:created', (event) => {
-      createdEvents.push(event);
+  it('prepareNewQuote persists a pending operation and emits mint-op:pending', async () => {
+    const pendingEvents: Array<CoreEvents['mint-op:pending']> = [];
+    eventBus.on('mint-op:pending', (event) => {
+      pendingEvents.push(event);
     });
 
     (handler.prepare as Mock<any>).mockImplementationOnce(async ({ operation }: { operation: InitMintOperation }) => ({
@@ -190,16 +190,18 @@ describe('MintOperationService', () => {
 
     expect(pending.state).toBe('pending');
     expect(pending.quoteId).toBe('quote-created');
-    expect(createdEvents).toHaveLength(1);
-    expect(createdEvents[0]?.quoteId).toBe('quote-created');
-    expect(createdEvents[0]?.quote.request).toBe('lnbc1created');
-    expect(createdEvents[0]?.quote.state).toBe('UNPAID');
+    expect(pendingEvents).toHaveLength(1);
+    expect(pendingEvents[0]?.operationId).toBe(pending.id);
+    const createdOperation = pendingEvents[0]?.operation as PendingMintOperation | undefined;
+    expect(createdOperation?.quoteId).toBe('quote-created');
+    expect(createdOperation?.request).toBe('lnbc1created');
+    expect(createdOperation?.lastObservedRemoteState).toBe('UNPAID');
   });
 
-  it('importQuote persists a pending operation and emits mint-quote:added', async () => {
-    const addedEvents: Array<CoreEvents['mint-quote:added']> = [];
-    eventBus.on('mint-quote:added', (event) => {
-      addedEvents.push(event);
+  it('importQuote persists a pending operation and emits mint-op:pending', async () => {
+    const pendingEvents: Array<CoreEvents['mint-op:pending']> = [];
+    eventBus.on('mint-op:pending', (event) => {
+      pendingEvents.push(event);
     });
 
     const importedQuote: MintQuoteBolt11Response = {
@@ -224,22 +226,29 @@ describe('MintOperationService', () => {
 
     expect(pending.state).toBe('pending');
     expect(pending.quoteId).toBe(importedQuote.quote);
-    expect(addedEvents).toHaveLength(1);
-    expect(addedEvents[0]?.quoteId).toBe(importedQuote.quote);
-    expect(addedEvents[0]?.quote.request).toBe(importedQuote.request);
-    expect(addedEvents[0]?.quote.state).toBe(importedQuote.state);
+    expect(pendingEvents).toHaveLength(1);
+    expect(pendingEvents[0]?.operationId).toBe(pending.id);
+    const importedOperation = pendingEvents[0]?.operation as PendingMintOperation | undefined;
+    expect(importedOperation?.quoteId).toBe(importedQuote.quote);
+    expect(importedOperation?.request).toBe(importedQuote.request);
+    expect(importedOperation?.lastObservedRemoteState).toBe(importedQuote.state);
   });
 
-  it('redeem runs init -> pending -> execute for an existing tracked operation', async () => {
-    const redeemedEvents: Array<CoreEvents['mint-quote:redeemed']> = [];
-    eventBus.on('mint-quote:redeemed', (event) => {
-      redeemedEvents.push(event);
+  it('prepare + finalize runs init -> pending -> execute for an existing tracked operation', async () => {
+    const quoteStateEvents: Array<CoreEvents['mint-op:quote-state-changed']> = [];
+    const finalizedEvents: Array<CoreEvents['mint-op:finalized']> = [];
+    eventBus.on('mint-op:quote-state-changed', (event) => {
+      quoteStateEvents.push(event);
+    });
+    eventBus.on('mint-op:finalized', (event) => {
+      finalizedEvents.push(event);
     });
 
     const initOp = makeInitOp('mint-op-redeem');
     await operationRepo.create(initOp);
 
-    const finalized = await service.redeem(mintUrl, quoteId);
+    const pending = await service.prepare(initOp.id);
+    const finalized = await service.finalize(pending.id);
 
     expect(finalized?.state).toBe('finalized');
 
@@ -251,16 +260,21 @@ describe('MintOperationService', () => {
     expect(saved).not.toBeNull();
     expect(saved?.createdByOperationId).toBe(finalized?.id);
 
-    expect(redeemedEvents.length).toBe(1);
-    expect(redeemedEvents[0]?.quoteId).toBe(quoteId);
-    expect(redeemedEvents[0]?.quote.state).toBe('ISSUED');
+    expect(quoteStateEvents.length).toBe(1);
+    expect(quoteStateEvents[0]?.quoteId).toBe(quoteId);
+    expect(quoteStateEvents[0]?.state).toBe('ISSUED');
+    expect(finalizedEvents.length).toBe(1);
+    expect(finalizedEvents[0]?.operationId).toBe(finalized?.id);
+    expect(finalizedEvents[0]?.operation.state).toBe('finalized');
   });
 
-  it('redeem is idempotent after finalize', async () => {
-    await operationRepo.create(makeInitOp('mint-op-idempotent'));
+  it('finalize is idempotent after finalize', async () => {
+    const initOp = makeInitOp('mint-op-idempotent');
+    await operationRepo.create(initOp);
 
-    const first = await service.redeem(mintUrl, quoteId);
-    const second = await service.redeem(mintUrl, quoteId);
+    const pending = await service.prepare(initOp.id);
+    const first = await service.finalize(pending.id);
+    const second = await service.finalize(first.id);
 
     expect(first?.state).toBe('finalized');
     expect(second?.id).toBe(first?.id);
@@ -327,7 +341,7 @@ describe('MintOperationService', () => {
     expect(stored?.error).toBe(`Recovered: quote ${quoteId} expired while executing mint`);
   });
 
-  it('redeem returns a failed operation when recovery finds an expired quote', async () => {
+  it('finalize returns a failed operation when recovery finds an expired quote', async () => {
     const op = makeExecutingOp('exec-expired-redeem');
     await operationRepo.create(op);
 
@@ -336,25 +350,25 @@ describe('MintOperationService', () => {
       error: `Recovered: quote ${quoteId} expired while executing mint`,
     });
 
-    const result = await service.redeem(mintUrl, quoteId);
+    const result = await service.finalize(op.id);
 
     expect(result?.state).toBe('failed');
     expect(result?.id).toBe(op.id);
   });
 
-  it('redeem retries when executing operation is recovered back to pending', async () => {
+  it('finalize throws when executing operation is recovered back to pending', async () => {
     const op = makeExecutingOp('exec-4');
     await operationRepo.create(op);
 
     (handler.recoverExecuting as Mock<any>).mockResolvedValueOnce({ status: 'PENDING' });
 
-    const finalized = await service.redeem(mintUrl, quoteId);
-
-    expect(finalized?.state).toBe('finalized');
+    await expect(service.finalize(op.id)).rejects.toThrow(
+      `Operation ${op.id} remains pending after recovery`,
+    );
   });
 
-  it('redeem returns null when no tracked operation exists for the quote', async () => {
-    await expect(service.redeem(mintUrl, quoteId)).resolves.toBeNull();
+  it('getOperationByQuote returns null when no tracked operation exists for the quote', async () => {
+    await expect(service.getOperationByQuote(mintUrl, quoteId)).resolves.toBeNull();
   });
 
   it('execute finalizes when already issued proofs cannot be restored', async () => {

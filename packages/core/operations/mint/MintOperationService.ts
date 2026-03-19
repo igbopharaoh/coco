@@ -163,9 +163,7 @@ export class MintOperationService {
     methodData: MintMethodData = {},
   ): Promise<PendingMintOperation> {
     const initOperation = await this.init(mintUrl, { amount, unit }, method, methodData);
-    return this.prepare(initOperation.id, {
-      quoteEvent: 'created',
-    });
+    return this.prepare(initOperation.id);
   }
 
   async importQuote(
@@ -186,7 +184,6 @@ export class MintOperationService {
     if (existing?.state === 'init') {
       return this.prepare(existing.id, {
         importedQuote: quote,
-        quoteEvent: 'added',
         skipMintLock: options?.skipMintLock,
       });
     }
@@ -206,7 +203,6 @@ export class MintOperationService {
 
     return this.prepare(initOperation.id, {
       importedQuote: quote,
-      quoteEvent: 'added',
       skipMintLock: options?.skipMintLock,
     });
   }
@@ -216,7 +212,6 @@ export class MintOperationService {
     options?: {
       skipMintLock?: boolean;
       importedQuote?: MintMethodQuoteSnapshot;
-      quoteEvent?: 'created' | 'added';
     },
   ): Promise<PendingMintOperation> {
     const releaseLock = await this.acquireOperationLock(operationId);
@@ -254,8 +249,6 @@ export class MintOperationService {
         };
 
         await this.mintOperationRepository.update(pendingOp);
-
-        await this.emitPreparedQuoteEvents(pendingOp, options?.quoteEvent);
         await this.eventBus.emit('mint-op:pending', {
           mintUrl: pendingOp.mintUrl,
           operationId: pendingOp.id,
@@ -395,74 +388,6 @@ export class MintOperationService {
     throw new Error(
       `Cannot finalize operation ${operationId} in state '${operation.state}'. Expected 'pending' or 'executing'.`,
     );
-  }
-
-  async redeem(mintUrl: string, quoteId: string): Promise<TerminalMintOperation | null> {
-    let releaseMintLock: (() => void) | null = null;
-    try {
-      releaseMintLock = await this.mintScopedLock.acquire(mintUrl);
-
-      let existing = await this.getOperationByQuote(mintUrl, quoteId);
-      if (existing) {
-        let latestState = existing.state;
-
-        if (isTerminalOperation(existing)) {
-          return existing;
-        }
-
-        if (existing.state === 'init') {
-          const pending = await this.prepare(existing.id, {
-            skipMintLock: true,
-          });
-          return this.execute(pending.id);
-        }
-
-        if (existing.state === 'pending') {
-          return this.execute(existing.id);
-        }
-
-        if (existing.state === 'executing') {
-          await this.recoverExecutingOperation(existing as ExecutingMintOperation);
-          const recovered = await this.mintOperationRepository.getById(existing.id);
-          if (recovered && isTerminalOperation(recovered)) {
-            return recovered;
-          }
-          latestState = recovered?.state ?? existing.state;
-          if (recovered?.state === 'pending') {
-            return this.execute(recovered.id);
-          }
-          if (recovered) {
-            this.logger?.warn('Mint operation still active after recovery attempt', {
-              operationId: recovered.id,
-              state: recovered.state,
-              mintUrl: recovered.mintUrl,
-              quoteId: recovered.quoteId,
-            });
-            throw new NetworkError(
-              `Mint operation ${recovered.id} still executing after recovery attempt`,
-            );
-          }
-        }
-
-        if (latestState !== 'finalized' && latestState !== 'failed') {
-          this.logger?.warn('Mint operation is active; refusing to create a duplicate', {
-            operationId: existing.id,
-            state: latestState,
-            mintUrl: existing.mintUrl,
-            quoteId: existing.quoteId,
-          });
-          throw new NetworkError(
-            `Mint operation ${existing.id} still active after recovery attempt`,
-          );
-        }
-      }
-
-      return null;
-    } finally {
-      if (releaseMintLock) {
-        releaseMintLock();
-      }
-    }
   }
 
   async recoverPendingOperations(): Promise<void> {
@@ -667,37 +592,6 @@ export class MintOperationService {
     return this.mintOperationRepository.getPending();
   }
 
-  private async emitPreparedQuoteEvents(
-    operation: PendingOrLaterOperation,
-    eventKind?: 'created' | 'added',
-  ): Promise<void> {
-    const quotePayload = {
-      quote: operation.quoteId,
-      request: operation.request,
-      amount: operation.amount,
-      unit: operation.unit,
-      expiry: operation.expiry,
-      pubkey: operation.pubkey,
-      state: operation.lastObservedRemoteState ?? 'UNPAID',
-    };
-
-    if (eventKind === 'created') {
-      await this.eventBus.emit('mint-quote:created', {
-        mintUrl: operation.mintUrl,
-        quoteId: operation.quoteId,
-        quote: quotePayload,
-      });
-    }
-
-    if (eventKind === 'added') {
-      await this.eventBus.emit('mint-quote:added', {
-        mintUrl: operation.mintUrl,
-        quoteId: operation.quoteId,
-        quote: quotePayload,
-      });
-    }
-  }
-
   private async recoverInitOperation(op: InitMintOperation): Promise<void> {
     const releaseLock = await this.acquireOperationLock(op.id);
     try {
@@ -789,24 +683,12 @@ export class MintOperationService {
       throw new Error(`Cannot finalize operation ${op.id} in state ${current.state}`);
     }
 
-    await this.eventBus.emit('mint-quote:state-changed', {
+    await this.eventBus.emit('mint-op:quote-state-changed', {
       mintUrl: current.mintUrl,
+      operationId: current.id,
+      operation: current,
       quoteId: current.quoteId,
       state: 'ISSUED',
-    });
-
-    await this.eventBus.emit('mint-quote:redeemed', {
-      mintUrl: current.mintUrl,
-      quoteId: current.quoteId,
-      quote: {
-        quote: current.quoteId,
-        request: current.request,
-        amount: current.amount,
-        unit: current.unit,
-        expiry: current.expiry,
-        pubkey: current.pubkey,
-        state: 'ISSUED',
-      },
     });
 
     const finalized: FinalizedMintOperation = {
@@ -911,7 +793,7 @@ export class MintOperationService {
     return pending;
   }
 
-  async checkPendingOperation(operationId: string): Promise<PendingMintCheckResult> {
+  async observePendingOperation(operationId: string): Promise<PendingMintCheckResult> {
     const op = await this.getOperation(operationId);
     if (!op || op.state !== 'pending') {
       throw new Error(
@@ -936,13 +818,26 @@ export class MintOperationService {
       updatedAt: Date.now(),
     };
     await this.mintOperationRepository.update(observedPending);
-
-    if (result.category === 'ready' || result.category === 'completed') {
-      await this.execute(op.id);
-    }
+    await this.eventBus.emit('mint-op:quote-state-changed', {
+      mintUrl: observedPending.mintUrl,
+      operationId: observedPending.id,
+      operation: observedPending,
+      quoteId: observedPending.quoteId,
+      state: result.observedRemoteState,
+    });
 
     if (result.category === 'terminal' && result.terminalFailure) {
       await this.failPendingOperation(op, result.terminalFailure);
+    }
+
+    return result;
+  }
+
+  async checkPendingOperation(operationId: string): Promise<PendingMintCheckResult> {
+    const result = await this.observePendingOperation(operationId);
+
+    if (result.category === 'ready' || result.category === 'completed') {
+      await this.finalize(operationId);
     }
 
     return result;

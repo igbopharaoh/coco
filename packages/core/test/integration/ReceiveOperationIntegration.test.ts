@@ -27,11 +27,11 @@ describe('ReceiveOperationService integration', () => {
     const baseConfig = {
       logger: new NullLogger(),
       watchers: {
-        mintQuoteWatcher: { disabled: true },
+        mintOperationWatcher: { disabled: true },
         proofStateWatcher: { disabled: true },
       },
       processors: {
-        mintQuoteProcessor: { disabled: true },
+        mintOperationProcessor: { disabled: true },
       },
     };
 

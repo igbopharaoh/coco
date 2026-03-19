@@ -82,11 +82,11 @@ describe('Auth BAT (automated — password grant)', () => {
       repo: repositories,
       seedGetter: async () => new Uint8Array(64),
       watchers: {
-        mintQuoteWatcher: { disabled: true },
+        mintOperationWatcher: { disabled: true },
         proofStateWatcher: { disabled: true },
       },
       processors: {
-        mintQuoteProcessor: { disabled: true },
+        mintOperationProcessor: { disabled: true },
       },
     });
 
@@ -125,11 +125,11 @@ describe('Auth BAT (automated — password grant)', () => {
       repo: repositories,
       seedGetter: async () => new Uint8Array(64),
       watchers: {
-        mintQuoteWatcher: { disabled: true },
+        mintOperationWatcher: { disabled: true },
         proofStateWatcher: { disabled: true },
       },
       processors: {
-        mintQuoteProcessor: { disabled: true },
+        mintOperationProcessor: { disabled: true },
       },
     });
 

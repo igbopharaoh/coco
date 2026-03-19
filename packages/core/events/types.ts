@@ -1,7 +1,6 @@
 import type {
   MeltQuoteBolt11Response,
   MeltQuoteState,
-  MintQuoteBolt11Response,
   Token,
 } from '@cashu/cashu-ts';
 import type { MeltOperation } from '@core/operations/melt';
@@ -30,15 +29,6 @@ export interface CoreEvents {
   'proofs:wiped': { mintUrl: string; keysetId: string };
   'proofs:reserved': { mintUrl: string; operationId: string; secrets: string[]; amount: number };
   'proofs:released': { mintUrl: string; secrets: string[] };
-  'mint-quote:state-changed': { mintUrl: string; quoteId: string; state: MintQuoteState };
-  'mint-quote:created': { mintUrl: string; quoteId: string; quote: MintQuoteBolt11Response };
-  'mint-quote:added': {
-    mintUrl: string;
-    quoteId: string;
-    quote: MintQuoteBolt11Response;
-  };
-  'mint-quote:requeue': { mintUrl: string; quoteId: string };
-  'mint-quote:redeemed': { mintUrl: string; quoteId: string; quote: MintQuoteBolt11Response };
   'melt-quote:created': { mintUrl: string; quoteId: string; quote: MeltQuoteBolt11Response };
   'melt-quote:state-changed': { mintUrl: string; quoteId: string; state: MeltQuoteState };
   'melt-quote:paid': { mintUrl: string; quoteId: string; quote: MeltQuoteBolt11Response };
@@ -59,6 +49,14 @@ export interface CoreEvents {
   'melt-op:finalized': { mintUrl: string; operationId: string; operation: MeltOperation };
   'melt-op:rolled-back': { mintUrl: string; operationId: string; operation: MeltOperation };
   'mint-op:pending': { mintUrl: string; operationId: string; operation: MintOperation };
+  'mint-op:quote-state-changed': {
+    mintUrl: string;
+    operationId: string;
+    operation: MintOperation;
+    quoteId: string;
+    state: MintQuoteState;
+  };
+  'mint-op:requeue': { mintUrl: string; operationId: string; operation: MintOperation };
   'mint-op:executing': { mintUrl: string; operationId: string; operation: MintOperation };
   'mint-op:finalized': { mintUrl: string; operationId: string; operation: MintOperation };
   'subscriptions:paused': void;

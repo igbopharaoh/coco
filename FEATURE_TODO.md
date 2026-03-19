@@ -86,6 +86,12 @@
 
 ### Phase 3: Rewire watcher and processor around operations
 
+Implementation order for this phase:
+1. Rewire watcher startup and live subscription registration around pending mint operations while keeping legacy quote-state compatibility events flowing from the operation path.
+2. Rewire processor queueing and execution around mint operations / operation lookup instead of quote-repository-driven orchestration.
+3. Rewrite history creation and state updates to consume operation-owned quote snapshots and operation-based mint events.
+4. Remove the remaining quote-repository-driven watcher / processor assumptions once the operation path fully owns background mint flow progression.
+
 - Replace quote-repository scans with mint-operation scans.
 - Replace the legacy quote-repository-driven watcher with an operation-based watcher.
 - Replace quote events as the primary trigger path with mint-operation events plus remote quote-state updates from the operation-based watcher.
@@ -192,43 +198,43 @@
   - only then derive deterministic outputs and persist the fully prepared `pending` operation with `quoteId` and the full quote snapshot attached
 - [x] Refactor `MintBolt11Handler.prepare()` to mirror `MeltBolt11Handler.prepare()` by creating or ingesting the quote snapshot first and returning a complete pending-operation payload.
 - [x] Move quote validation that currently happens in mint `init()` into the appropriate create/import `prepare()` path so quote-less init rows remain valid.
-- [ ] Ensure the prepare path uses the same mint-scoped locking guarantees as melt while creating the quote and materializing deterministic outputs.
-- [ ] Add any missing operation query APIs needed by watcher / processor / history flows.
-- [ ] Refactor `MintOperationService` to create and manage quote-backed operations without `MintQuoteRepository`.
-- [ ] Remove `MintQuoteService` as the primary orchestration path while keeping `MintQuoteRepository` available temporarily for startup reconciliation.
+- [x] Ensure the prepare path uses the same mint-scoped locking guarantees as melt while creating the quote and materializing deterministic outputs.
+- [x] Add any missing operation query APIs needed by watcher / processor / history flows.
+- [x] Refactor `MintOperationService` to create and manage quote-backed operations without `MintQuoteRepository`.
+- [x] Remove `MintQuoteService` as the primary orchestration path while keeping `MintQuoteRepository` available temporarily for startup reconciliation.
 - [x] Refactor `MintBolt11Handler` and mint method deps to consume operation-owned quote data.
 - [x] Remove mint quote methods from `QuotesApi` while keeping melt quote methods intact for now.
 - [x] Decide whether `manager.quotes` remains as a melt-only API or keeps temporary deprecated mint shims during migration.
 
 ### Watcher and processor TODOs
 
-- [ ] Define the replacement event model for mint flows:
+- [x] Define the replacement event model for mint flows:
   - `mint-op:pending` for tracked/prepared quote-backed operations
   - `mint-op:quote-state-changed` for observed remote quote state changes
   - `mint-op:executing`
   - terminal lifecycle events for success and failure
-- [ ] Add any missing mint-operation events for creation / import if needed.
-- [ ] Replace the legacy mint quote watcher with an operation-based watcher that subscribes from mint operations.
-- [ ] Rebuild the mint quote processor to queue from mint operations.
-- [ ] Remove `MintOperationService.redeem(mintUrl, quoteId)` once the processor no longer delegates quote-id work through the legacy mint-quote service path.
-- [ ] Rework startup bootstrap to scan mint operations instead of mint quote rows.
-- [ ] Add a startup reconciliation pass that scans legacy mint quote rows and backfills missing mint operations before watcher / processor / recovery startup.
-- [ ] Rework `resumeSubscriptions()` to re-establish operation-based watcher / processor / recovery coverage for mint operations, not just restart transports.
-- [ ] Ensure startup reconciliation resumes quote-backed `init` operations before generic init cleanup can delete them.
-- [ ] Make the watcher emit operation-based quote observation events instead of `mint-quote:state-changed`.
-- [ ] Make the processor queue from:
+- [x] Add any missing mint-operation events for creation / import if needed.
+- [x] Replace the legacy mint quote watcher with an operation-based watcher that subscribes from mint operations.
+- [x] Rebuild the mint quote processor to queue from mint operations.
+- [x] Remove `MintOperationService.redeem(mintUrl, quoteId)` once the processor no longer delegates quote-id work through the legacy mint-quote service path.
+- [x] Rework startup bootstrap to scan mint operations instead of mint quote rows.
+- [x] Add a startup reconciliation pass that scans legacy mint quote rows and backfills missing mint operations before watcher / processor / recovery startup.
+- [x] Rework `resumeSubscriptions()` to re-establish operation-based watcher / processor / recovery coverage for mint operations, not just restart transports.
+- [x] Ensure startup reconciliation resumes quote-backed `init` operations before generic init cleanup can delete them.
+- [x] Make the watcher emit operation-based quote observation events instead of `mint-quote:state-changed`.
+- [x] Make the processor queue from live operation events:
   - `mint-op:pending` when a newly prepared/imported operation is already observed as `PAID`
   - `mint-op:quote-state-changed` when a watched operation transitions to `PAID`
-  - pending-operation scans during startup bootstrap
-- [ ] Define whether resume uses the same pending-operation scan/requeue path as startup bootstrap or a smaller resume-specific reconciliation pass, and document the ordering.
-- [ ] Ensure runtime imports of external quotes are processed without restart:
+  - do not rely on pending-operation scans during startup bootstrap; startup backlog should be handled by recovery
+- [x] Define whether resume uses the same pending-operation scan/requeue path as startup bootstrap or a smaller resume-specific reconciliation pass, and document the ordering.
+- [x] Ensure runtime imports of external quotes are processed without restart:
   - already-PAID imports should enqueue immediately from the operation path
   - unpaid imports should rely on watcher coverage until they transition to `PAID`
-- [ ] Document and enforce the ownership boundary: watcher observes, processor advances `pending`, recovery reconciles `executing`.
+- [x] Document and enforce the ownership boundary: watcher observes, processor advances live `pending`, recovery reconciles startup/backlog `pending` plus `executing`.
 - [ ] Preserve untrusted-mint behavior for watched / queued work.
 - [ ] Preserve expired-quote handling and other terminal processor outcomes.
-- [ ] Ensure unpaid watched quotes remain in local `pending` state until they eventually converge to `executing`, `finalized`, or `failed`.
-- [ ] Persist only the latest observed remote state as metadata; do not treat it as the authoritative operation state.
+- [x] Ensure unpaid watched quotes remain in local `pending` state until they eventually converge to `executing`, `finalized`, or `failed`.
+- [x] Persist only the latest observed remote state as metadata; do not treat it as the authoritative operation state.
 - [ ] Define when watcher callbacks update `lastObservedRemoteState` and when action paths must still re-check remote state before acting.
 
 ### Migration TODOs
@@ -246,19 +252,19 @@
 
 ### History and events TODOs
 
-- [ ] Rewrite mint history creation to use operation-owned quote snapshot payloads.
-- [ ] Rewrite mint history state updates to use operation-owned quote metadata plus observed quote-state updates from the watcher path.
-- [ ] Make history creation come from operation events such as `mint-op:pending` rather than `mint-quote:created` / `mint-quote:added`.
+- [x] Rewrite mint history creation to use operation-owned quote snapshot payloads.
+- [x] Rewrite mint history state updates to use operation-owned quote metadata plus observed quote-state updates from the watcher path.
+- [x] Make history creation come from operation events such as `mint-op:pending` rather than `mint-quote:created` / `mint-quote:added`.
 - [ ] Make history state updates come from operation events such as `mint-op:quote-state-changed`, `mint-op:finalized`, and terminal failure events.
-- [ ] Audit all `mint-quote:*` listeners and replace or remove them.
-- [ ] Remove legacy `mint-quote:*` event types once all internal listeners have been migrated.
+- [x] Audit all `mint-quote:*` listeners and replace or remove them.
+- [x] Remove legacy `mint-quote:*` event types once all internal listeners have been migrated.
 - [ ] Update README and API docs to document the new event / API model.
 
 ### Removal TODOs
 
 - [ ] Remove `MintQuoteService` from manager wiring.
-- [ ] Remove the legacy `MintQuoteWatcherService` from manager wiring and config after the operation-based watcher replacement is in place.
-- [ ] Remove `MintQuoteProcessor` from manager wiring and config.
+- [x] Remove the legacy `MintQuoteWatcherService` from manager wiring and config after the operation-based watcher replacement is in place.
+- [x] Remove `MintQuoteProcessor` from manager wiring and config.
 - [ ] Remove `MintQuoteRepository` from repository interfaces after startup reconciliation and compatibility imports are no longer needed.
 - [ ] Remove memory mint quote repository after startup reconciliation and compatibility imports are no longer needed.
 - [ ] Remove sqlite3 mint quote repository and schema after startup reconciliation and compatibility imports are no longer needed.

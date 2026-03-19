@@ -7,7 +7,6 @@ import type {
   HistoryService,
   KeyRingService,
   MeltQuoteService,
-  MintQuoteService,
   MintService,
   PaymentRequestService,
   ProofService,
@@ -33,7 +32,6 @@ export interface ServiceMap {
   walletRestoreService: WalletRestoreService;
   counterService: CounterService;
   tokenService: TokenService;
-  mintQuoteService: MintQuoteService;
   meltQuoteService: MeltQuoteService;
   historyService: HistoryService;
   transactionService: TransactionService;

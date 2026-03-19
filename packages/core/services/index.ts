@@ -4,7 +4,6 @@ export * from './CounterService';
 export * from './HistoryService';
 export * from './KeyRingService';
 export * from './MeltQuoteService';
-export * from './MintQuoteService';
 export * from './MintService';
 export * from './PaymentRequestService';
 export * from './ProofService';

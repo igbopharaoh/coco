@@ -9,9 +9,8 @@ import type {
 import {
   CounterService,
   MintService,
-  MintQuoteService,
-  MintQuoteWatcherService,
-  MintQuoteProcessor,
+  MintOperationWatcherService,
+  MintOperationProcessor,
   ProofService,
   WalletService,
   SeedService,
@@ -85,8 +84,8 @@ export interface CocoConfig {
    * - Provide options to customize behavior
    */
   watchers?: {
-    /** Mint quote watcher (enabled by default) */
-    mintQuoteWatcher?: {
+    /** Mint operation watcher (enabled by default) */
+    mintOperationWatcher?: {
       disabled?: boolean;
       watchExistingPendingOnStart?: boolean;
     };
@@ -104,8 +103,8 @@ export interface CocoConfig {
    * - Provide options to customize behavior
    */
   processors?: {
-    /** Mint quote processor (enabled by default) */
-    mintQuoteProcessor?: {
+    /** Mint operation processor (enabled by default) */
+    mintOperationProcessor?: {
       disabled?: boolean;
       processIntervalMs?: number;
       maxRetries?: number;
@@ -154,10 +153,14 @@ export async function initializeCoco(config: CocoConfig): Promise<Manager> {
   // Initialize plugin system (must complete before watchers for extensions to be available)
   await coco.initPlugins();
 
+  // Reconcile legacy mint quote rows into mint operations before any watcher,
+  // processor, or mint recovery path starts.
+  await coco.reconcileLegacyMintQuotes();
+
   // Enable watchers (default: all enabled unless explicitly disabled)
-  const mintQuoteWatcherConfig = config.watchers?.mintQuoteWatcher;
-  if (!mintQuoteWatcherConfig?.disabled) {
-    await coco.enableMintQuoteWatcher(mintQuoteWatcherConfig);
+  const mintOperationWatcherConfig = config.watchers?.mintOperationWatcher;
+  if (!mintOperationWatcherConfig?.disabled) {
+    await coco.enableMintOperationWatcher(mintOperationWatcherConfig);
   }
 
   const proofStateWatcherConfig = config.watchers?.proofStateWatcher;
@@ -166,10 +169,9 @@ export async function initializeCoco(config: CocoConfig): Promise<Manager> {
   }
 
   // Enable processors (default: all enabled unless explicitly disabled)
-  const mintQuoteProcessorConfig = config.processors?.mintQuoteProcessor;
-  if (!mintQuoteProcessorConfig?.disabled) {
-    await coco.enableMintQuoteProcessor(mintQuoteProcessorConfig);
-    await coco.requeuePaidMintQuotes();
+  const mintOperationProcessorConfig = config.processors?.mintOperationProcessor;
+  if (!mintOperationProcessorConfig?.disabled) {
+    await coco.enableMintOperationProcessor(mintOperationProcessorConfig);
   }
 
   // Recover any pending send operations from previous session
@@ -215,9 +217,8 @@ export class Manager {
   private eventBus: EventBus<CoreEvents>;
   private logger: Logger;
   readonly subscriptions: SubscriptionManager;
-  private mintQuoteService: MintQuoteService;
-  private mintQuoteWatcher?: MintQuoteWatcherService;
-  private mintQuoteProcessor?: MintQuoteProcessor;
+  private mintOperationWatcher?: MintOperationWatcherService;
+  private mintOperationProcessor?: MintOperationProcessor;
   private mintQuoteRepository: MintQuoteRepository;
   private proofStateWatcher?: ProofStateWatcherService;
   private meltQuoteService: MeltQuoteService;
@@ -280,7 +281,6 @@ export class Manager {
     this.keyRingService = core.keyRingService;
     this.seedService = core.seedService;
     this.counterService = core.counterService;
-    this.mintQuoteService = core.mintQuoteService;
     this.mintQuoteRepository = core.mintQuoteRepository;
     this.meltQuoteService = core.meltQuoteService;
     this.historyService = core.historyService;
@@ -335,7 +335,6 @@ export class Manager {
       seedService: this.seedService,
       walletRestoreService: this.walletRestoreService,
       counterService: this.counterService,
-      mintQuoteService: this.mintQuoteService,
       meltQuoteService: this.meltQuoteService,
       historyService: this.historyService,
       transactionService: this.transactionService,
@@ -390,7 +389,6 @@ export class Manager {
       walletRestoreService: this.walletRestoreService,
       paymentRequestService: this.paymentRequestService,
       counterService: this.counterService,
-      mintQuoteService: this.mintQuoteService,
       meltQuoteService: this.meltQuoteService,
       meltOperationService: this.meltOperationService,
       mintOperationService: this.mintOperationService,
@@ -418,58 +416,59 @@ export class Manager {
     return this.eventBus.off(event, handler);
   }
 
-  async enableMintQuoteWatcher(options?: { watchExistingPendingOnStart?: boolean }): Promise<void> {
-    if (this.mintQuoteWatcher?.isRunning()) return;
+  async enableMintOperationWatcher(options?: {
+    watchExistingPendingOnStart?: boolean;
+  }): Promise<void> {
+    if (this.mintOperationWatcher?.isRunning()) return;
     const watcherLogger = this.logger.child
-      ? this.logger.child({ module: 'MintQuoteWatcherService' })
+      ? this.logger.child({ module: 'MintOperationWatcherService' })
       : this.logger;
-    this.mintQuoteWatcher = new MintQuoteWatcherService(
-      this.mintQuoteRepository,
+    this.mintOperationWatcher = new MintOperationWatcherService(
       this.subscriptions,
       this.mintService,
-      this.mintQuoteService,
+      this.mintOperationService,
       this.eventBus,
       watcherLogger,
       { watchExistingPendingOnStart: options?.watchExistingPendingOnStart ?? true },
     );
-    await this.mintQuoteWatcher.start();
+    await this.mintOperationWatcher.start();
   }
 
-  async disableMintQuoteWatcher(): Promise<void> {
-    if (!this.mintQuoteWatcher) return;
-    await this.mintQuoteWatcher.stop();
-    this.mintQuoteWatcher = undefined;
+  async disableMintOperationWatcher(): Promise<void> {
+    if (!this.mintOperationWatcher) return;
+    await this.mintOperationWatcher.stop();
+    this.mintOperationWatcher = undefined;
   }
 
-  async enableMintQuoteProcessor(options?: {
+  async enableMintOperationProcessor(options?: {
     processIntervalMs?: number;
     maxRetries?: number;
     baseRetryDelayMs?: number;
     initialEnqueueDelayMs?: number;
   }): Promise<boolean> {
-    if (this.mintQuoteProcessor?.isRunning()) return false;
+    if (this.mintOperationProcessor?.isRunning()) return false;
     const processorLogger = this.logger.child
-      ? this.logger.child({ module: 'MintQuoteProcessor' })
+      ? this.logger.child({ module: 'MintOperationProcessor' })
       : this.logger;
-    this.mintQuoteProcessor = new MintQuoteProcessor(
-      this.mintQuoteService,
+    this.mintOperationProcessor = new MintOperationProcessor(
+      this.mintOperationService,
       this.eventBus,
       processorLogger,
       options,
     );
-    await this.mintQuoteProcessor.start();
+    await this.mintOperationProcessor.start();
     return true;
   }
 
-  async disableMintQuoteProcessor(): Promise<void> {
-    if (!this.mintQuoteProcessor) return;
-    await this.mintQuoteProcessor.stop();
-    this.mintQuoteProcessor = undefined;
+  async disableMintOperationProcessor(): Promise<void> {
+    if (!this.mintOperationProcessor) return;
+    await this.mintOperationProcessor.stop();
+    this.mintOperationProcessor = undefined;
   }
 
-  async waitForMintQuoteProcessor(): Promise<void> {
-    if (!this.mintQuoteProcessor) return;
-    await this.mintQuoteProcessor.waitForCompletion();
+  async waitForMintOperationProcessor(): Promise<void> {
+    if (!this.mintOperationProcessor) return;
+    await this.mintOperationProcessor.waitForCompletion();
   }
 
   async enableProofStateWatcher(options?: {
@@ -526,6 +525,61 @@ export class Manager {
     await this.mintOperationService.recoverPendingOperations();
   }
 
+  async reconcileLegacyMintQuotes(mintUrl?: string): Promise<{ reconciled: string[]; skipped: string[] }> {
+    const reconciled: string[] = [];
+    const skipped: string[] = [];
+    const quotes = await this.mintQuoteRepository.getPendingMintQuotes();
+
+    for (const quote of quotes) {
+      if (mintUrl && quote.mintUrl !== mintUrl) continue;
+      if (quote.state === 'ISSUED') {
+        skipped.push(quote.quote);
+        continue;
+      }
+
+      const trusted = await this.mintService.isTrustedMint(quote.mintUrl);
+      if (!trusted) {
+        this.logger.debug('Skipping legacy mint quote reconciliation for untrusted mint', {
+          mintUrl: quote.mintUrl,
+          quoteId: quote.quote,
+        });
+        skipped.push(quote.quote);
+        continue;
+      }
+
+      const existing = await this.mintOperationService.getOperationByQuote(quote.mintUrl, quote.quote);
+      if (existing && existing.state !== 'init') {
+        skipped.push(quote.quote);
+        continue;
+      }
+
+      try {
+        const operation = await this.mintOperationService.importQuote(
+          quote.mintUrl,
+          quote,
+          'bolt11',
+          {},
+        );
+        reconciled.push(operation.quoteId);
+      } catch (err) {
+        this.logger.warn('Failed to reconcile legacy mint quote', {
+          mintUrl: quote.mintUrl,
+          quoteId: quote.quote,
+          err,
+        });
+        skipped.push(quote.quote);
+      }
+    }
+
+    this.logger.info('Legacy mint quote reconciliation completed', {
+      mintUrl,
+      reconciled: reconciled.length,
+      skipped: skipped.length,
+    });
+
+    return { reconciled, skipped };
+  }
+
   async pauseSubscriptions(): Promise<void> {
     if (this.subscriptionsPaused) {
       this.logger.debug('Subscriptions already paused');
@@ -538,11 +592,11 @@ export class Manager {
     this.subscriptions.pause();
 
     // Disable watchers
-    await this.disableMintQuoteWatcher();
+    await this.disableMintOperationWatcher();
     await this.disableProofStateWatcher();
 
     // Disable processor
-    await this.disableMintQuoteProcessor();
+    await this.disableMintOperationProcessor();
 
     this.logger.info('Subscriptions paused');
     await this.eventBus.emit('subscriptions:paused', undefined);
@@ -557,9 +611,9 @@ export class Manager {
     this.subscriptions.resume();
 
     // Re-enable watchers based on original configuration (idempotent)
-    const mintQuoteWatcherConfig = this.originalWatcherConfig?.mintQuoteWatcher;
-    if (!mintQuoteWatcherConfig?.disabled) {
-      await this.enableMintQuoteWatcher(mintQuoteWatcherConfig);
+    const mintOperationWatcherConfig = this.originalWatcherConfig?.mintOperationWatcher;
+    if (!mintOperationWatcherConfig?.disabled) {
+      await this.enableMintOperationWatcher(mintOperationWatcherConfig);
     }
 
     const proofStateWatcherConfig = this.originalWatcherConfig?.proofStateWatcher;
@@ -568,14 +622,12 @@ export class Manager {
     }
 
     // Re-enable processor based on original configuration (idempotent)
-    const mintQuoteProcessorConfig = this.originalProcessorConfig?.mintQuoteProcessor;
-    if (!mintQuoteProcessorConfig?.disabled) {
-      const wasEnabled = await this.enableMintQuoteProcessor(mintQuoteProcessorConfig);
-      // Only requeue if we actually re-enabled (not already running)
-      if (wasEnabled) {
-        await this.requeuePaidMintQuotes();
-      }
+    const mintOperationProcessorConfig = this.originalProcessorConfig?.mintOperationProcessor;
+    if (!mintOperationProcessorConfig?.disabled) {
+      await this.enableMintOperationProcessor(mintOperationProcessorConfig);
     }
+
+    await this.recoverPendingMintOperations();
 
     this.logger.info('Subscriptions resumed');
   }
@@ -585,7 +637,27 @@ export class Manager {
   }
 
   async requeuePaidMintQuotes(mintUrl?: string): Promise<{ requeued: string[] }> {
-    return this.mintQuoteService.requeuePaidMintQuotes(mintUrl);
+    const requeued: string[] = [];
+    const pendingOperations = await this.mintOperationService.getPendingOperations();
+
+    for (const operation of pendingOperations) {
+      if (mintUrl && operation.mintUrl !== mintUrl) continue;
+      if (operation.lastObservedRemoteState !== 'PAID') continue;
+
+      const trusted = await this.mintService.isTrustedMint(operation.mintUrl);
+      if (!trusted) {
+        continue;
+      }
+
+      await this.eventBus.emit('mint-op:requeue', {
+        mintUrl: operation.mintUrl,
+        operationId: operation.id,
+        operation,
+      });
+      requeued.push(operation.quoteId);
+    }
+
+    return { requeued };
   }
 
   private createEventBus(): EventBus<CoreEvents> {
@@ -638,7 +710,6 @@ export class Manager {
     tokenService: TokenService;
     walletRestoreService: WalletRestoreService;
     keyRingService: KeyRingService;
-    mintQuoteService: MintQuoteService;
     mintQuoteRepository: MintQuoteRepository;
     meltQuoteService: MeltQuoteService;
     historyService: HistoryService;
@@ -659,7 +730,6 @@ export class Manager {
     const walletLogger = this.getChildLogger('WalletService');
     const counterLogger = this.getChildLogger('CounterService');
     const proofLogger = this.getChildLogger('ProofService');
-    const mintQuoteLogger = this.getChildLogger('MintQuoteService');
     const walletRestoreLogger = this.getChildLogger('WalletRestoreService');
     const keyRingLogger = this.getChildLogger('KeyRingService');
     const meltQuoteLogger = this.getChildLogger('MeltQuoteService');
@@ -804,15 +874,6 @@ export class Manager {
     );
     const mintOperationRepository = repositories.mintOperationRepository;
 
-    const quotesService = new MintQuoteService(
-      repositories.mintQuoteRepository,
-      mintService,
-      walletService,
-      mintOperationService,
-      this.eventBus,
-      mintQuoteLogger,
-    );
-    const mintQuoteService = quotesService;
     const mintQuoteRepository = repositories.mintQuoteRepository;
 
     const paymentRequestLogger = this.getChildLogger('PaymentRequestService');
@@ -841,7 +902,6 @@ export class Manager {
       tokenService,
       walletRestoreService,
       keyRingService,
-      mintQuoteService,
       mintQuoteRepository,
       meltQuoteService,
       historyService,
