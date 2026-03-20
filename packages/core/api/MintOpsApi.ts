@@ -18,8 +18,8 @@ export type PrepareMintInput<TSupported extends MintMethod = DefaultSupportedMin
     mintUrl: string;
     /** Amount to request from the mint. */
     amount: number;
-    /** Unit to request from the mint. Defaults to `sat`. */
-    unit?: string;
+    /** Unit to request from the mint. Only `sat` is currently supported. */
+    unit?: 'sat';
     /** Mint method to prepare, for example `bolt11`. */
     method: M;
     /** Method-specific payload required for the selected mint method. */
@@ -76,10 +76,15 @@ export class MintOpsApi<TSupported extends MintMethod = DefaultSupportedMintMeth
    * Creates a new remote quote, then persists a prepared mint operation without executing it.
    */
   async prepare(input: PrepareMintInput<TSupported>): Promise<PendingMintOperation> {
+    const unit = input.unit ?? 'sat';
+    if (unit !== 'sat') {
+      throw new Error(`Unsupported mint unit '${unit}'. Only 'sat' is currently supported.`);
+    }
+
     return this.mintOperationService.prepareNewQuote(
       input.mintUrl,
       input.amount,
-      input.unit ?? 'sat',
+      unit,
       input.method,
       input.methodData,
     );
