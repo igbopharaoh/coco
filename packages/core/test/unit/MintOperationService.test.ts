@@ -234,6 +234,23 @@ describe('MintOperationService', () => {
     expect(importedOperation?.lastObservedRemoteState).toBe(importedQuote.state);
   });
 
+  it('importQuote rejects unsupported quote units', async () => {
+    const importedQuote: MintQuoteBolt11Response = {
+      quote: 'quote-usd',
+      request: 'lnbc1imported',
+      amount: 12,
+      unit: 'usd',
+      expiry: Math.floor(Date.now() / 1000) + 3600,
+      state: 'PAID',
+    };
+
+    await expect(service.importQuote(mintUrl, importedQuote, 'bolt11', {})).rejects.toThrow(
+      "Unsupported mint unit 'usd'. Only 'sat' is currently supported.",
+    );
+
+    expect(handler.prepare).not.toHaveBeenCalled();
+  });
+
   it('prepare + finalize runs init -> pending -> execute for an existing tracked operation', async () => {
     const quoteStateEvents: Array<CoreEvents['mint-op:quote-state-changed']> = [];
     const finalizedEvents: Array<CoreEvents['mint-op:finalized']> = [];

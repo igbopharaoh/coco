@@ -123,6 +123,14 @@ export class MintOperationService {
     return this.recoveryLock !== null;
   }
 
+  private assertSupportedUnit(unit: string): void {
+    if (unit !== 'sat') {
+      throw new ProofValidationError(
+        `Unsupported mint unit '${unit}'. Only 'sat' is currently supported.`,
+      );
+    }
+  }
+
   async init(
     mintUrl: string,
     intent: { amount: number; unit: string },
@@ -142,6 +150,8 @@ export class MintOperationService {
     if (!intent.unit) {
       throw new ProofValidationError('Unit is required');
     }
+
+    this.assertSupportedUnit(intent.unit);
 
     const operationId = generateSubId();
     const operation = createMintOperation(

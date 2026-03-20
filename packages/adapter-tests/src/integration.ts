@@ -112,7 +112,7 @@ async function prepareMintOperation(
   manager: Manager,
   mintUrl: string,
   amount: number,
-  unit = 'sat',
+  unit: 'sat' = 'sat',
 ) {
   return manager.ops.mint.prepare({
     mintUrl,
@@ -203,9 +203,9 @@ async function awaitMintQuotePaidWithSubscription(
   return (await getLatestPendingMintOperation(manager, pendingMint.id)) ?? pendingMint;
 }
 
-async function mintAmount(manager: Manager, mintUrl: string, amount: number, unit = 'sat') {
+async function mintAmount(manager: Manager, mintUrl: string, amount: number, unit: 'sat' = 'sat') {
   const pendingMint = await prepareMintOperation(manager, mintUrl, amount, unit);
-  await awaitMintQuotePaid(manager, pendingMint);
+  await awaitMintQuotePaidWithSubscription(manager, mintUrl, pendingMint);
   await executeMintOperation(manager, pendingMint.id);
   return pendingMint;
 }

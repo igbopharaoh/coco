@@ -72,14 +72,18 @@ export class MintOpsApi<TSupported extends MintMethod = DefaultSupportedMintMeth
 
   constructor(private readonly mintOperationService: MintOperationService) {}
 
+  private assertSupportedUnit(unit: string): void {
+    if (unit !== 'sat') {
+      throw new Error(`Unsupported mint unit '${unit}'. Only 'sat' is currently supported.`);
+    }
+  }
+
   /**
    * Creates a new remote quote, then persists a prepared mint operation without executing it.
    */
   async prepare(input: PrepareMintInput<TSupported>): Promise<PendingMintOperation> {
     const unit = input.unit ?? 'sat';
-    if (unit !== 'sat') {
-      throw new Error(`Unsupported mint unit '${unit}'. Only 'sat' is currently supported.`);
-    }
+    this.assertSupportedUnit(unit);
 
     return this.mintOperationService.prepareNewQuote(
       input.mintUrl,
@@ -94,6 +98,8 @@ export class MintOpsApi<TSupported extends MintMethod = DefaultSupportedMintMeth
    * Imports an existing quote snapshot into a prepared mint operation without executing it.
    */
   async importQuote(input: ImportMintQuoteInput<TSupported>): Promise<PendingMintOperation> {
+    this.assertSupportedUnit(input.quote.unit);
+
     return this.mintOperationService.importQuote(
       input.mintUrl,
       input.quote,

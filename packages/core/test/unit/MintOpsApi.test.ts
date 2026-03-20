@@ -123,6 +123,22 @@ describe('MintOpsApi', () => {
     expect(result).toBe(pendingOperation);
   });
 
+  it('importQuote rejects non-sat quote units before delegating to the service', async () => {
+    await expect(
+      api.importQuote({
+        mintUrl,
+        quote: {
+          ...quote,
+          unit: 'usd',
+        } as MintQuoteBolt11Response,
+        method: 'bolt11',
+        methodData: {},
+      }),
+    ).rejects.toThrow("Unsupported mint unit 'usd'. Only 'sat' is currently supported.");
+
+    expect(mintOperationService.importQuote).not.toHaveBeenCalled();
+  });
+
   it('execute only allows pending operations', async () => {
     const result = await api.execute(pendingOperation.id);
 
