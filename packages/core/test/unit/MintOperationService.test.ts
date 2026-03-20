@@ -430,4 +430,57 @@ describe('MintOperationService', () => {
     expect(stored.lastObservedRemoteState).toBe('UNPAID');
     expect(stored.lastObservedRemoteStateAt).toEqual(expect.any(Number));
   });
+
+  it('recordPendingObservation updates the stored remote state without emitting another event', async () => {
+    const pendingOp = makePendingOp('pending-4');
+    const quoteStateEvents: Array<CoreEvents['mint-op:quote-state-changed']> = [];
+    eventBus.on('mint-op:quote-state-changed', (event) => {
+      quoteStateEvents.push(event);
+    });
+    await operationRepo.create(pendingOp);
+
+    const observedAt = Date.now();
+    const result = await service.recordPendingObservation(pendingOp.id, 'PAID', observedAt);
+    const stored = await operationRepo.getById(pendingOp.id);
+
+    expect(result.lastObservedRemoteState).toBe('PAID');
+    expect(result.lastObservedRemoteStateAt).toBe(observedAt);
+    expect(stored?.state).toBe('pending');
+    if (!stored || stored.state !== 'pending') {
+      throw new Error('Expected pending operation to remain pending after recording observation');
+    }
+    expect(stored.lastObservedRemoteState).toBe('PAID');
+    expect(stored.lastObservedRemoteStateAt).toBe(observedAt);
+    expect(handler.checkPending).not.toHaveBeenCalled();
+    expect(quoteStateEvents).toHaveLength(0);
+  });
+
+  it('persists a pending quote-state-changed event emitted by another service', async () => {
+    const pendingOp = makePendingOp('pending-5');
+    await operationRepo.create(pendingOp);
+
+    const observedAt = Date.now();
+    await eventBus.emit('mint-op:quote-state-changed', {
+      mintUrl,
+      operationId: pendingOp.id,
+      operation: {
+        ...pendingOp,
+        lastObservedRemoteState: 'PAID',
+        lastObservedRemoteStateAt: observedAt,
+        updatedAt: observedAt,
+      },
+      quoteId: pendingOp.quoteId,
+      state: 'PAID',
+    });
+
+    const stored = await operationRepo.getById(pendingOp.id);
+
+    expect(stored?.state).toBe('pending');
+    if (!stored || stored.state !== 'pending') {
+      throw new Error('Expected pending operation to remain pending after event persistence');
+    }
+    expect(stored.lastObservedRemoteState).toBe('PAID');
+    expect(stored.lastObservedRemoteStateAt).toBe(observedAt);
+    expect(handler.checkPending).not.toHaveBeenCalled();
+  });
 });

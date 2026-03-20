@@ -168,7 +168,7 @@ Implementation order for this phase:
 - [ ] Decide whether `quoteId` becomes optional on one unified persisted mint-operation shape or whether `init` and pending+ states should use separate persisted field requirements.
 - [x] Add `lastObservedRemoteState` and `lastObservedRemoteStateAt` to mint operations as observational metadata.
 - [x] Make remote observation state method-owned rather than globally quote-owned, so future mint methods can define different remote-state unions.
-- [ ] Wire `lastObservedRemoteState` / `lastObservedRemoteStateAt` through the watcher / processor / finalize paths so operations persist the latest observed remote state, not just the prepare-time snapshot.
+- [x] Wire `lastObservedRemoteState` / `lastObservedRemoteStateAt` through the watcher / processor / finalize paths so operations persist the latest observed remote state, not just the prepare-time snapshot.
 - [x] Define structured terminal failure fields for mint operations.
 - [ ] Define the prepared-data invariant for `pending` mint operations so create/import always persist all local execution data up front.
 - [ ] Ensure the new prepare flow persists quote snapshot data and deterministic outputs atomically.

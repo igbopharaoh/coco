@@ -236,52 +236,72 @@ export class MintOperationWatcherService {
       for (const batch of chunks) {
         const quoteIds = batch.map((operation) => operation.quoteId);
         const operationIdByQuote = new Map(batch.map((operation) => [operation.quoteId, operation.id]));
-      const { subId, unsubscribe } = await this.subs.subscribe<MintQuoteResponse>(
-        mintUrl,
-        'bolt11_mint_quote',
-        quoteIds,
-        async (payload) => {
-          // Only act on state changes we care about
-          if (payload.state !== 'PAID' && payload.state !== 'ISSUED') return;
+        const { subId, unsubscribe } = await this.subs.subscribe<MintQuoteResponse>(
+          mintUrl,
+          'bolt11_mint_quote',
+          quoteIds,
+          async (payload) => {
+            // Only act on state changes we care about
+            if (payload.state !== 'PAID' && payload.state !== 'ISSUED') return;
 
-          const quoteId = payload.quote;
-          if (!quoteId) return;
-          const key = toKey(mintUrl, quoteId);
-          const operationId = this.operationIdByKey.get(key) ?? operationIdByQuote.get(quoteId);
-          if (!operationId) return;
+            const quoteId = payload.quote;
+            if (!quoteId) return;
+            const key = toKey(mintUrl, quoteId);
+            const operationId = this.operationIdByKey.get(key) ?? operationIdByQuote.get(quoteId);
+            if (!operationId) return;
 
-          try {
-            await this.mintOperations.observePendingOperation(operationId);
-          } catch (err) {
-            this.logger?.error('Failed to observe pending mint operation from remote update', {
-              operationId,
-              mintUrl,
-              quoteId,
-              state: payload.state,
-              err,
-            });
-          }
+            try {
+              const current = await this.mintOperations.getOperation(operationId);
+              if (!current || current.state !== 'pending') {
+                await this.stopWatching(key);
+                return;
+              }
 
-          if (payload.state === 'ISSUED') {
-            await this.stopWatching(key);
-            return;
-          }
+              const observedAt = Date.now();
+              const observedOperation: PendingMintOperation = {
+                ...current,
+                lastObservedRemoteState: payload.state,
+                lastObservedRemoteStateAt: observedAt,
+                updatedAt: observedAt,
+              };
 
-          try {
-            const current = await this.mintOperations.getOperation(operationId);
-            if (!current || current.state !== 'pending') {
-              await this.stopWatching(key);
+              await this.bus.emit('mint-op:quote-state-changed', {
+                mintUrl: observedOperation.mintUrl,
+                operationId: observedOperation.id,
+                operation: observedOperation,
+                quoteId: observedOperation.quoteId,
+                state: payload.state,
+              });
+            } catch (err) {
+              this.logger?.error('Failed to emit pending mint operation update from remote update', {
+                operationId,
+                mintUrl,
+                quoteId,
+                state: payload.state,
+                err,
+              });
             }
-          } catch (err) {
-            this.logger?.warn('Failed to inspect mint operation after remote update', {
-              operationId,
-              mintUrl,
-              quoteId,
-              err,
-            });
-          }
-        },
-      );
+
+            if (payload.state === 'ISSUED') {
+              await this.stopWatching(key);
+              return;
+            }
+
+            try {
+              const current = await this.mintOperations.getOperation(operationId);
+              if (!current || current.state !== 'pending') {
+                await this.stopWatching(key);
+              }
+            } catch (err) {
+              this.logger?.warn('Failed to inspect mint operation after remote update', {
+                operationId,
+                mintUrl,
+                quoteId,
+                err,
+              });
+            }
+          },
+        );
 
         let didUnsubscribe = false;
         const remaining = new Set(quoteIds);

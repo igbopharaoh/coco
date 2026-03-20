@@ -25,6 +25,7 @@ import type {
   MintMethodMeta,
   PendingMintCheckResult,
   MintMethodQuoteSnapshot,
+  MintMethodRemoteState,
 } from './MintMethodHandler';
 import type { MintService } from '../../services/MintService';
 import type { WalletService } from '../../services/WalletService';
@@ -84,6 +85,18 @@ export class MintOperationService {
     this.eventBus = eventBus;
     this.logger = logger;
     this.mintScopedLock = mintScopedLock ?? new MintScopedLock();
+
+    this.eventBus.on('mint-op:quote-state-changed', async ({ operationId, operation, state }) => {
+      if (operation.state !== 'pending') {
+        return;
+      }
+
+      await this.recordPendingObservation(
+        operationId,
+        state,
+        operation.lastObservedRemoteStateAt ?? Date.now(),
+      );
+    });
   }
 
   private buildDeps() {
@@ -683,6 +696,8 @@ export class MintOperationService {
       throw new Error(`Cannot finalize operation ${op.id} in state ${current.state}`);
     }
 
+    const observedRemoteStateAt = Date.now();
+
     await this.eventBus.emit('mint-op:quote-state-changed', {
       mintUrl: current.mintUrl,
       operationId: current.id,
@@ -694,6 +709,8 @@ export class MintOperationService {
     const finalized: FinalizedMintOperation = {
       ...(current as PendingOrLaterOperation),
       state: 'finalized',
+      lastObservedRemoteState: 'ISSUED',
+      lastObservedRemoteStateAt: observedRemoteStateAt,
       updatedAt: Date.now(),
       error,
     };
@@ -817,7 +834,7 @@ export class MintOperationService {
       lastObservedRemoteStateAt: result.observedRemoteStateAt,
       updatedAt: Date.now(),
     };
-    await this.mintOperationRepository.update(observedPending);
+
     await this.eventBus.emit('mint-op:quote-state-changed', {
       mintUrl: observedPending.mintUrl,
       operationId: observedPending.id,
@@ -831,6 +848,31 @@ export class MintOperationService {
     }
 
     return result;
+  }
+
+  async recordPendingObservation(
+    operationId: string,
+    observedRemoteState: MintMethodRemoteState,
+    observedRemoteStateAt = Date.now(),
+  ): Promise<PendingMintOperation> {
+    const op = await this.getOperation(operationId);
+    if (!op || op.state !== 'pending') {
+      throw new Error(
+        `Cannot record observation for operation ${operationId}: expected state 'pending' but found '${
+          op?.state ?? 'not found'
+        }'`,
+      );
+    }
+
+    const observedPending: PendingMintOperation = {
+      ...op,
+      lastObservedRemoteState: observedRemoteState,
+      lastObservedRemoteStateAt: observedRemoteStateAt,
+      updatedAt: Date.now(),
+    };
+    await this.mintOperationRepository.update(observedPending);
+
+    return observedPending;
   }
 
   async checkPendingOperation(operationId: string): Promise<PendingMintCheckResult> {
