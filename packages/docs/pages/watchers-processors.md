@@ -3,9 +3,9 @@
 By default, when using `initializeCoco()`, all watchers and processors are automatically enabled. If you're instantiating the `Manager` class directly, you can manually enable them:
 
 ```ts
-await coco.enableMintQuoteProcessor();
+await coco.enableMintOperationProcessor();
 await coco.enableProofStateWatcher();
-await coco.enableMintQuoteWatcher();
+await coco.enableMintOperationWatcher();
 ```
 
 `initializeCoco()` also recovers pending `coco.ops.send`, `coco.ops.receive`, and `coco.ops.melt`
@@ -18,22 +18,24 @@ const coco = await initializeCoco({
   repo,
   seedGetter,
   watchers: {
-    mintQuoteWatcher: { disabled: true },
+    mintOperationWatcher: { disabled: true },
     proofStateWatcher: { disabled: true },
   },
   processors: {
-    mintQuoteProcessor: { disabled: true },
+    mintOperationProcessor: { disabled: true },
   },
 });
 ```
 
-## MintQuoteProcessor
+## MintOperationProcessor
 
-This module will periodically check the database for "PAID" mint quotes and redeem them.
+This module processes live mint operation events. When a pending mint operation is observed as
+`PAID`, the processor advances it by finalizing the operation.
 
-## MintQuoteWatcher
+## MintOperationWatcher
 
-This module will check the state of mint quotes (via WebSockets and polling) and update their state automatically.
+This module watches pending mint operations via WebSockets and polling, observes remote quote
+state changes, and emits operation-based mint events. It does not finalize operations itself.
 
 ## ProofStateWatcher
 
@@ -57,8 +59,8 @@ When `pauseSubscriptions()` is called:
 
 - All WebSocket connections are closed immediately
 - Reconnection attempts are disabled to save battery
-- All watchers (`MintQuoteWatcher`, `ProofStateWatcher`) are stopped
-- The `MintQuoteProcessor` is stopped
+- All watchers (`MintOperationWatcher`, `ProofStateWatcher`) are stopped
+- The `MintOperationProcessor` is stopped
 
 ### What happens during resume?
 
@@ -66,7 +68,8 @@ When `resumeSubscriptions()` is called:
 
 - All subscriptions are re-established (WebSockets or polling)
 - Watchers are restarted based on their original configuration
-- The `MintQuoteProcessor` is restarted and paid mint quotes are re-enqueued
+- The `MintOperationProcessor` is restarted if enabled
+- Startup and resume backlog reconciliation are handled by mint operation recovery
 - Everything returns to its previous state before pausing
 
 ### Use Cases

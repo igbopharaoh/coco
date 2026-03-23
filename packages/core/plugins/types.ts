@@ -7,7 +7,6 @@ import type {
   HistoryService,
   KeyRingService,
   MeltQuoteService,
-  MintQuoteService,
   MintService,
   PaymentRequestService,
   ProofService,
@@ -19,6 +18,7 @@ import type {
 } from '../services';
 import type { SendOperationService } from '../operations/send/SendOperationService';
 import type { MeltOperationService } from '../operations/melt/MeltOperationService';
+import type { MintOperationService } from '../operations/mint/MintOperationService';
 import type { ReceiveOperationService } from '../operations/receive/ReceiveOperationService';
 
 export type ServiceKey = keyof ServiceMap;
@@ -32,13 +32,13 @@ export interface ServiceMap {
   walletRestoreService: WalletRestoreService;
   counterService: CounterService;
   tokenService: TokenService;
-  mintQuoteService: MintQuoteService;
   meltQuoteService: MeltQuoteService;
   historyService: HistoryService;
   transactionService: TransactionService;
   sendOperationService: SendOperationService;
   receiveOperationService: ReceiveOperationService;
   meltOperationService: MeltOperationService;
+  mintOperationService: MintOperationService;
   paymentRequestService: PaymentRequestService;
   subscriptions: SubscriptionManager;
   eventBus: EventBus<CoreEvents>;

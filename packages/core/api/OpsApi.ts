@@ -1,4 +1,4 @@
-// import type { MintOpsApi } from './MintOpsApi';
+import type { MintOpsApi } from './MintOpsApi';
 import type { MeltOpsApi } from './MeltOpsApi';
 import type { ReceiveOpsApi } from './ReceiveOpsApi';
 import type { SendOpsApi } from './SendOpsApi';
@@ -23,13 +23,14 @@ export class OpsApi {
      */
     readonly receive: ReceiveOpsApi,
     /**
+     * Mint operations for preparing, executing, inspecting, and recovering
+     * quote-backed mint flows.
+     */
+    readonly mint: MintOpsApi,
+    /**
      * Melt operations for preparing, executing, inspecting, refreshing, and
      * recovering outbound payment flows such as bolt11 melts.
      */
     readonly melt: MeltOpsApi,
-    // /**
-    //  * Mint operations for quote-backed minting workflows.
-    //  */
-    // readonly mint: MintOpsApi,
   ) {}
 }

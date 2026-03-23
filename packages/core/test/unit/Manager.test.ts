@@ -25,15 +25,15 @@ describe('initializeCoco', () => {
       expect(manager).toBeInstanceOf(Manager);
 
       // Verify watchers are running (they have isRunning methods)
-      expect(manager['mintQuoteWatcher']?.isRunning()).toBe(true);
+      expect(manager['mintOperationWatcher']?.isRunning()).toBe(true);
       expect(manager['proofStateWatcher']?.isRunning()).toBe(true);
 
       // Verify processor is running
-      expect(manager['mintQuoteProcessor']?.isRunning()).toBe(true);
+      expect(manager['mintOperationProcessor']?.isRunning()).toBe(true);
 
-      await manager.disableMintQuoteWatcher();
+      await manager.disableMintOperationWatcher();
       await manager.disableProofStateWatcher();
-      await manager.disableMintQuoteProcessor();
+      await manager.disableMintOperationProcessor();
     });
 
     it('should initialize repositories', async () => {
@@ -56,11 +56,12 @@ describe('initializeCoco', () => {
       expect(manager['logger']).toBeInstanceOf(NullLogger);
       expect(manager.ops.send).toBe(manager.send);
       expect(manager.ops.receive).toBe(manager.receive);
+      expect(manager.ops.mint).toBeDefined();
       expect(manager.ops.melt).toBeDefined();
 
-      await manager.disableMintQuoteWatcher();
+      await manager.disableMintOperationWatcher();
       await manager.disableProofStateWatcher();
-      await manager.disableMintQuoteProcessor();
+      await manager.disableMintOperationProcessor();
     });
 
     it('should accept custom logger', async () => {
@@ -72,27 +73,27 @@ describe('initializeCoco', () => {
 
       expect(manager['logger']).toBe(customLogger);
 
-      await manager.disableMintQuoteWatcher();
+      await manager.disableMintOperationWatcher();
       await manager.disableProofStateWatcher();
-      await manager.disableMintQuoteProcessor();
+      await manager.disableMintOperationProcessor();
     });
   });
 
   describe('watchers configuration', () => {
-    it('should disable mintQuoteWatcher when explicitly disabled', async () => {
+    it('should disable mintOperationWatcher when explicitly disabled', async () => {
       const manager = await initializeCoco({
         ...baseConfig,
         watchers: {
-          mintQuoteWatcher: { disabled: true },
+          mintOperationWatcher: { disabled: true },
         },
       });
 
-      expect(manager['mintQuoteWatcher']).toBeUndefined();
+      expect(manager['mintOperationWatcher']).toBeUndefined();
       expect(manager['proofStateWatcher']?.isRunning()).toBe(true);
-      expect(manager['mintQuoteProcessor']?.isRunning()).toBe(true);
+      expect(manager['mintOperationProcessor']?.isRunning()).toBe(true);
 
       await manager.disableProofStateWatcher();
-      await manager.disableMintQuoteProcessor();
+      await manager.disableMintOperationProcessor();
     });
 
     it('should disable proofStateWatcher when explicitly disabled', async () => {
@@ -104,116 +105,116 @@ describe('initializeCoco', () => {
       });
 
       expect(manager['proofStateWatcher']).toBeUndefined();
-      expect(manager['mintQuoteWatcher']?.isRunning()).toBe(true);
-      expect(manager['mintQuoteProcessor']?.isRunning()).toBe(true);
+      expect(manager['mintOperationWatcher']?.isRunning()).toBe(true);
+      expect(manager['mintOperationProcessor']?.isRunning()).toBe(true);
 
-      await manager.disableMintQuoteWatcher();
-      await manager.disableMintQuoteProcessor();
+      await manager.disableMintOperationWatcher();
+      await manager.disableMintOperationProcessor();
     });
 
     it('should disable all watchers when all are explicitly disabled', async () => {
       const manager = await initializeCoco({
         ...baseConfig,
         watchers: {
-          mintQuoteWatcher: { disabled: true },
+          mintOperationWatcher: { disabled: true },
           proofStateWatcher: { disabled: true },
         },
       });
 
-      expect(manager['mintQuoteWatcher']).toBeUndefined();
+      expect(manager['mintOperationWatcher']).toBeUndefined();
       expect(manager['proofStateWatcher']).toBeUndefined();
-      expect(manager['mintQuoteProcessor']?.isRunning()).toBe(true);
+      expect(manager['mintOperationProcessor']?.isRunning()).toBe(true);
 
-      await manager.disableMintQuoteProcessor();
+      await manager.disableMintOperationProcessor();
     });
 
-    it('should pass options to mintQuoteWatcher when not disabled', async () => {
+    it('should pass options to mintOperationWatcher when not disabled', async () => {
       const manager = await initializeCoco({
         ...baseConfig,
         watchers: {
-          mintQuoteWatcher: {
+          mintOperationWatcher: {
             watchExistingPendingOnStart: false,
           },
         },
       });
 
-      expect(manager['mintQuoteWatcher']?.isRunning()).toBe(true);
+      expect(manager['mintOperationWatcher']?.isRunning()).toBe(true);
 
-      await manager.disableMintQuoteWatcher();
+      await manager.disableMintOperationWatcher();
       await manager.disableProofStateWatcher();
-      await manager.disableMintQuoteProcessor();
+      await manager.disableMintOperationProcessor();
     });
 
     it('should enable with options even when disabled is explicitly false', async () => {
       const manager = await initializeCoco({
         ...baseConfig,
         watchers: {
-          mintQuoteWatcher: {
+          mintOperationWatcher: {
             disabled: false,
             watchExistingPendingOnStart: true,
           },
         },
       });
 
-      expect(manager['mintQuoteWatcher']?.isRunning()).toBe(true);
+      expect(manager['mintOperationWatcher']?.isRunning()).toBe(true);
 
-      await manager.disableMintQuoteWatcher();
+      await manager.disableMintOperationWatcher();
       await manager.disableProofStateWatcher();
-      await manager.disableMintQuoteProcessor();
+      await manager.disableMintOperationProcessor();
     });
   });
 
   describe('processors configuration', () => {
-    it('should disable mintQuoteProcessor when explicitly disabled', async () => {
+    it('should disable mintOperationProcessor when explicitly disabled', async () => {
       const manager = await initializeCoco({
         ...baseConfig,
         processors: {
-          mintQuoteProcessor: { disabled: true },
+          mintOperationProcessor: { disabled: true },
         },
       });
 
-      expect(manager['mintQuoteProcessor']).toBeUndefined();
-      expect(manager['mintQuoteWatcher']?.isRunning()).toBe(true);
+      expect(manager['mintOperationProcessor']).toBeUndefined();
+      expect(manager['mintOperationWatcher']?.isRunning()).toBe(true);
       expect(manager['proofStateWatcher']?.isRunning()).toBe(true);
 
-      await manager.disableMintQuoteWatcher();
+      await manager.disableMintOperationWatcher();
       await manager.disableProofStateWatcher();
     });
 
-    it('should pass options to mintQuoteProcessor when not disabled', async () => {
+    it('should pass options to mintOperationProcessor when not disabled', async () => {
       const manager = await initializeCoco({
         ...baseConfig,
         processors: {
-          mintQuoteProcessor: {
+          mintOperationProcessor: {
             processIntervalMs: 5000,
             maxRetries: 3,
           },
         },
       });
 
-      expect(manager['mintQuoteProcessor']?.isRunning()).toBe(true);
+      expect(manager['mintOperationProcessor']?.isRunning()).toBe(true);
 
-      await manager.disableMintQuoteWatcher();
+      await manager.disableMintOperationWatcher();
       await manager.disableProofStateWatcher();
-      await manager.disableMintQuoteProcessor();
+      await manager.disableMintOperationProcessor();
     });
 
     it('should enable with options even when disabled is explicitly false', async () => {
       const manager = await initializeCoco({
         ...baseConfig,
         processors: {
-          mintQuoteProcessor: {
+          mintOperationProcessor: {
             disabled: false,
             processIntervalMs: 1000,
           },
         },
       });
 
-      expect(manager['mintQuoteProcessor']?.isRunning()).toBe(true);
+      expect(manager['mintOperationProcessor']?.isRunning()).toBe(true);
 
-      await manager.disableMintQuoteWatcher();
+      await manager.disableMintOperationWatcher();
       await manager.disableProofStateWatcher();
-      await manager.disableMintQuoteProcessor();
+      await manager.disableMintOperationProcessor();
     });
   });
 
@@ -222,45 +223,45 @@ describe('initializeCoco', () => {
       const manager = await initializeCoco({
         ...baseConfig,
         watchers: {
-          mintQuoteWatcher: { disabled: true },
+          mintOperationWatcher: { disabled: true },
           proofStateWatcher: { disabled: false },
         },
         processors: {
-          mintQuoteProcessor: { disabled: false },
+          mintOperationProcessor: { disabled: false },
         },
       });
 
-      expect(manager['mintQuoteWatcher']).toBeUndefined();
+      expect(manager['mintOperationWatcher']).toBeUndefined();
       expect(manager['proofStateWatcher']?.isRunning()).toBe(true);
-      expect(manager['mintQuoteProcessor']?.isRunning()).toBe(true);
+      expect(manager['mintOperationProcessor']?.isRunning()).toBe(true);
 
       await manager.disableProofStateWatcher();
-      await manager.disableMintQuoteProcessor();
+      await manager.disableMintOperationProcessor();
     });
 
     it('should support options with mixed configuration', async () => {
       const manager = await initializeCoco({
         ...baseConfig,
         watchers: {
-          mintQuoteWatcher: {
+          mintOperationWatcher: {
             watchExistingPendingOnStart: false,
           },
           proofStateWatcher: { disabled: true },
         },
         processors: {
-          mintQuoteProcessor: {
+          mintOperationProcessor: {
             processIntervalMs: 10000,
             maxRetries: 5,
           },
         },
       });
 
-      expect(manager['mintQuoteWatcher']?.isRunning()).toBe(true);
+      expect(manager['mintOperationWatcher']?.isRunning()).toBe(true);
       expect(manager['proofStateWatcher']).toBeUndefined();
-      expect(manager['mintQuoteProcessor']?.isRunning()).toBe(true);
+      expect(manager['mintOperationProcessor']?.isRunning()).toBe(true);
 
-      await manager.disableMintQuoteWatcher();
-      await manager.disableMintQuoteProcessor();
+      await manager.disableMintOperationWatcher();
+      await manager.disableMintOperationProcessor();
     });
   });
 
@@ -283,9 +284,9 @@ describe('initializeCoco', () => {
 
       expect(pluginInitMock).toHaveBeenCalled();
 
-      await manager.disableMintQuoteWatcher();
+      await manager.disableMintOperationWatcher();
       await manager.disableProofStateWatcher();
-      await manager.disableMintQuoteProcessor();
+      await manager.disableMintOperationProcessor();
     });
   });
 
@@ -296,12 +297,12 @@ describe('initializeCoco', () => {
         watchers: {},
       });
 
-      expect(manager['mintQuoteWatcher']?.isRunning()).toBe(true);
+      expect(manager['mintOperationWatcher']?.isRunning()).toBe(true);
       expect(manager['proofStateWatcher']?.isRunning()).toBe(true);
 
-      await manager.disableMintQuoteWatcher();
+      await manager.disableMintOperationWatcher();
       await manager.disableProofStateWatcher();
-      await manager.disableMintQuoteProcessor();
+      await manager.disableMintOperationProcessor();
     });
 
     it('should handle empty processors config object', async () => {
@@ -310,11 +311,11 @@ describe('initializeCoco', () => {
         processors: {},
       });
 
-      expect(manager['mintQuoteProcessor']?.isRunning()).toBe(true);
+      expect(manager['mintOperationProcessor']?.isRunning()).toBe(true);
 
-      await manager.disableMintQuoteWatcher();
+      await manager.disableMintOperationWatcher();
       await manager.disableProofStateWatcher();
-      await manager.disableMintQuoteProcessor();
+      await manager.disableMintOperationProcessor();
     });
 
     it('should handle empty config objects for both watchers and processors', async () => {
@@ -324,30 +325,30 @@ describe('initializeCoco', () => {
         processors: {},
       });
 
-      expect(manager['mintQuoteWatcher']?.isRunning()).toBe(true);
+      expect(manager['mintOperationWatcher']?.isRunning()).toBe(true);
       expect(manager['proofStateWatcher']?.isRunning()).toBe(true);
-      expect(manager['mintQuoteProcessor']?.isRunning()).toBe(true);
+      expect(manager['mintOperationProcessor']?.isRunning()).toBe(true);
 
-      await manager.disableMintQuoteWatcher();
+      await manager.disableMintOperationWatcher();
       await manager.disableProofStateWatcher();
-      await manager.disableMintQuoteProcessor();
+      await manager.disableMintOperationProcessor();
     });
 
     it('should handle all features disabled', async () => {
       const manager = await initializeCoco({
         ...baseConfig,
         watchers: {
-          mintQuoteWatcher: { disabled: true },
+          mintOperationWatcher: { disabled: true },
           proofStateWatcher: { disabled: true },
         },
         processors: {
-          mintQuoteProcessor: { disabled: true },
+          mintOperationProcessor: { disabled: true },
         },
       });
 
-      expect(manager['mintQuoteWatcher']).toBeUndefined();
+      expect(manager['mintOperationWatcher']).toBeUndefined();
       expect(manager['proofStateWatcher']).toBeUndefined();
-      expect(manager['mintQuoteProcessor']).toBeUndefined();
+      expect(manager['mintOperationProcessor']).toBeUndefined();
 
       // Should still have API access
       expect(manager.mint).toBeDefined();
@@ -361,11 +362,11 @@ describe('initializeCoco', () => {
       const manager = await initializeCoco({
         ...baseConfig,
         watchers: {
-          mintQuoteWatcher: { disabled: true },
+          mintOperationWatcher: { disabled: true },
           proofStateWatcher: { disabled: true },
         },
         processors: {
-          mintQuoteProcessor: { disabled: true },
+          mintOperationProcessor: { disabled: true },
         },
       });
 
@@ -382,16 +383,16 @@ describe('initializeCoco', () => {
     it('should pause and stop all watchers and processors', async () => {
       const manager = await initializeCoco(baseConfig);
 
-      expect(manager['mintQuoteWatcher']?.isRunning()).toBe(true);
+      expect(manager['mintOperationWatcher']?.isRunning()).toBe(true);
       expect(manager['proofStateWatcher']?.isRunning()).toBe(true);
-      expect(manager['mintQuoteProcessor']?.isRunning()).toBe(true);
+      expect(manager['mintOperationProcessor']?.isRunning()).toBe(true);
 
       await manager.pauseSubscriptions();
 
       // After pause, watchers and processor are disabled (set to undefined)
-      expect(manager['mintQuoteWatcher']).toBeUndefined();
+      expect(manager['mintOperationWatcher']).toBeUndefined();
       expect(manager['proofStateWatcher']).toBeUndefined();
-      expect(manager['mintQuoteProcessor']).toBeUndefined();
+      expect(manager['mintOperationProcessor']).toBeUndefined();
     });
 
     it('should resume and restart all watchers and processors', async () => {
@@ -400,13 +401,13 @@ describe('initializeCoco', () => {
       await manager.pauseSubscriptions();
       await manager.resumeSubscriptions();
 
-      expect(manager['mintQuoteWatcher']?.isRunning()).toBe(true);
+      expect(manager['mintOperationWatcher']?.isRunning()).toBe(true);
       expect(manager['proofStateWatcher']?.isRunning()).toBe(true);
-      expect(manager['mintQuoteProcessor']?.isRunning()).toBe(true);
+      expect(manager['mintOperationProcessor']?.isRunning()).toBe(true);
 
-      await manager.disableMintQuoteWatcher();
+      await manager.disableMintOperationWatcher();
       await manager.disableProofStateWatcher();
-      await manager.disableMintQuoteProcessor();
+      await manager.disableMintOperationProcessor();
     });
 
     it('should be idempotent - multiple pause calls should not error', async () => {
@@ -417,9 +418,9 @@ describe('initializeCoco', () => {
       await manager.pauseSubscriptions();
 
       // After pause, watchers and processor are disabled (set to undefined)
-      expect(manager['mintQuoteWatcher']).toBeUndefined();
+      expect(manager['mintOperationWatcher']).toBeUndefined();
       expect(manager['proofStateWatcher']).toBeUndefined();
-      expect(manager['mintQuoteProcessor']).toBeUndefined();
+      expect(manager['mintOperationProcessor']).toBeUndefined();
     });
 
     it('should be idempotent - multiple resume calls should not error', async () => {
@@ -430,13 +431,13 @@ describe('initializeCoco', () => {
       await manager.resumeSubscriptions();
       await manager.resumeSubscriptions();
 
-      expect(manager['mintQuoteWatcher']?.isRunning()).toBe(true);
+      expect(manager['mintOperationWatcher']?.isRunning()).toBe(true);
       expect(manager['proofStateWatcher']?.isRunning()).toBe(true);
-      expect(manager['mintQuoteProcessor']?.isRunning()).toBe(true);
+      expect(manager['mintOperationProcessor']?.isRunning()).toBe(true);
 
-      await manager.disableMintQuoteWatcher();
+      await manager.disableMintOperationWatcher();
       await manager.disableProofStateWatcher();
-      await manager.disableMintQuoteProcessor();
+      await manager.disableMintOperationProcessor();
     });
 
     it('should handle resume without prior pause (OS connection teardown scenario)', async () => {
@@ -445,70 +446,70 @@ describe('initializeCoco', () => {
       // Simulate OS killing connections - just call resume without pause
       await manager.resumeSubscriptions();
 
-      expect(manager['mintQuoteWatcher']?.isRunning()).toBe(true);
+      expect(manager['mintOperationWatcher']?.isRunning()).toBe(true);
       expect(manager['proofStateWatcher']?.isRunning()).toBe(true);
-      expect(manager['mintQuoteProcessor']?.isRunning()).toBe(true);
+      expect(manager['mintOperationProcessor']?.isRunning()).toBe(true);
 
-      await manager.disableMintQuoteWatcher();
+      await manager.disableMintOperationWatcher();
       await manager.disableProofStateWatcher();
-      await manager.disableMintQuoteProcessor();
+      await manager.disableMintOperationProcessor();
     });
 
     it('should respect original configuration - disabled watchers stay disabled', async () => {
       const manager = await initializeCoco({
         ...baseConfig,
         watchers: {
-          mintQuoteWatcher: { disabled: true },
+          mintOperationWatcher: { disabled: true },
           proofStateWatcher: { disabled: false },
         },
         processors: {
-          mintQuoteProcessor: { disabled: false },
+          mintOperationProcessor: { disabled: false },
         },
       });
 
-      expect(manager['mintQuoteWatcher']).toBeUndefined();
+      expect(manager['mintOperationWatcher']).toBeUndefined();
       expect(manager['proofStateWatcher']?.isRunning()).toBe(true);
-      expect(manager['mintQuoteProcessor']?.isRunning()).toBe(true);
+      expect(manager['mintOperationProcessor']?.isRunning()).toBe(true);
 
       await manager.pauseSubscriptions();
       await manager.resumeSubscriptions();
 
-      // mintQuoteWatcher should remain undefined (was disabled)
-      expect(manager['mintQuoteWatcher']).toBeUndefined();
+      // mintOperationWatcher should remain undefined (was disabled)
+      expect(manager['mintOperationWatcher']).toBeUndefined();
       // Others should be running again
       expect(manager['proofStateWatcher']?.isRunning()).toBe(true);
-      expect(manager['mintQuoteProcessor']?.isRunning()).toBe(true);
+      expect(manager['mintOperationProcessor']?.isRunning()).toBe(true);
 
       await manager.disableProofStateWatcher();
-      await manager.disableMintQuoteProcessor();
+      await manager.disableMintOperationProcessor();
     });
 
     it('should respect original configuration - disabled processor stays disabled', async () => {
       const manager = await initializeCoco({
         ...baseConfig,
         watchers: {
-          mintQuoteWatcher: { disabled: false },
+          mintOperationWatcher: { disabled: false },
           proofStateWatcher: { disabled: false },
         },
         processors: {
-          mintQuoteProcessor: { disabled: true },
+          mintOperationProcessor: { disabled: true },
         },
       });
 
-      expect(manager['mintQuoteWatcher']?.isRunning()).toBe(true);
+      expect(manager['mintOperationWatcher']?.isRunning()).toBe(true);
       expect(manager['proofStateWatcher']?.isRunning()).toBe(true);
-      expect(manager['mintQuoteProcessor']).toBeUndefined();
+      expect(manager['mintOperationProcessor']).toBeUndefined();
 
       await manager.pauseSubscriptions();
       await manager.resumeSubscriptions();
 
       // Watchers should be running again
-      expect(manager['mintQuoteWatcher']?.isRunning()).toBe(true);
+      expect(manager['mintOperationWatcher']?.isRunning()).toBe(true);
       expect(manager['proofStateWatcher']?.isRunning()).toBe(true);
       // Processor should remain undefined (was disabled)
-      expect(manager['mintQuoteProcessor']).toBeUndefined();
+      expect(manager['mintOperationProcessor']).toBeUndefined();
 
-      await manager.disableMintQuoteWatcher();
+      await manager.disableMintOperationWatcher();
       await manager.disableProofStateWatcher();
     });
 
@@ -516,11 +517,11 @@ describe('initializeCoco', () => {
       const manager = await initializeCoco({
         ...baseConfig,
         watchers: {
-          mintQuoteWatcher: { disabled: true },
+          mintOperationWatcher: { disabled: true },
           proofStateWatcher: { disabled: true },
         },
         processors: {
-          mintQuoteProcessor: { disabled: true },
+          mintOperationProcessor: { disabled: true },
         },
       });
 
@@ -528,9 +529,9 @@ describe('initializeCoco', () => {
       await manager.resumeSubscriptions();
 
       // All should remain undefined
-      expect(manager['mintQuoteWatcher']).toBeUndefined();
+      expect(manager['mintOperationWatcher']).toBeUndefined();
       expect(manager['proofStateWatcher']).toBeUndefined();
-      expect(manager['mintQuoteProcessor']).toBeUndefined();
+      expect(manager['mintOperationProcessor']).toBeUndefined();
     });
   });
 });

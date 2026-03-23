@@ -1,4 +1,4 @@
-import type { MeltQuoteBolt11Response, MintQuoteBolt11Response } from '@cashu/cashu-ts';
+import type { MeltQuoteBolt11Response } from '@cashu/cashu-ts';
 import type {
   FinalizedMeltOperation,
   MeltOperation,
@@ -7,28 +7,17 @@ import type {
   PendingCheckResult,
   PreparedMeltOperation,
 } from '@core/operations/melt';
-import type { MintQuoteService, MeltQuoteService } from '@core/services';
+import type { MeltQuoteService } from '@core/services';
 
 export class QuotesApi {
-  private mintQuoteService: MintQuoteService;
   private meltQuoteService: MeltQuoteService;
   private meltOperationService: MeltOperationService;
   constructor(
-    mintQuoteService: MintQuoteService,
     meltQuoteService: MeltQuoteService,
     meltOperationService: MeltOperationService,
   ) {
-    this.mintQuoteService = mintQuoteService;
     this.meltQuoteService = meltQuoteService;
     this.meltOperationService = meltOperationService;
-  }
-
-  async createMintQuote(mintUrl: string, amount: number): Promise<MintQuoteBolt11Response> {
-    return this.mintQuoteService.createMintQuote(mintUrl, amount);
-  }
-
-  async redeemMintQuote(mintUrl: string, quoteId: string): Promise<void> {
-    return this.mintQuoteService.redeemMintQuote(mintUrl, quoteId);
   }
 
   /**
@@ -149,16 +138,5 @@ export class QuotesApi {
    */
   async getPreparedMeltOperations(): Promise<PreparedMeltOperation[]> {
     return this.meltOperationService.getPreparedOperations();
-  }
-
-  async addMintQuote(
-    mintUrl: string,
-    quotes: MintQuoteBolt11Response[],
-  ): Promise<{ added: string[]; skipped: string[] }> {
-    return this.mintQuoteService.addExistingMintQuotes(mintUrl, quotes);
-  }
-
-  async requeuePaidMintQuotes(mintUrl?: string): Promise<{ requeued: string[] }> {
-    return this.mintQuoteService.requeuePaidMintQuotes(mintUrl);
   }
 }

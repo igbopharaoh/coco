@@ -65,6 +65,8 @@ type SendHistoryUpdatedPayload = {
   };
 };
 
+type PreparedMintOperation = Awaited<ReturnType<Manager['ops']['mint']['prepare']>>;
+
 const watcherTestSubscriptions = {
   slowPollingIntervalMs: 50,
   fastPollingIntervalMs: 50,
@@ -104,6 +106,108 @@ function waitForSendHistoryState(
     }
     return true;
   });
+}
+
+async function prepareMintOperation(
+  manager: Manager,
+  mintUrl: string,
+  amount: number,
+  unit: 'sat' = 'sat',
+) {
+  return manager.ops.mint.prepare({
+    mintUrl,
+    amount,
+    unit,
+    method: 'bolt11',
+    methodData: {},
+  });
+}
+
+async function executeMintOperation(manager: Manager, operationId: string) {
+  return manager.ops.mint.execute(operationId);
+}
+
+function isMintQuoteReady(
+  state: PreparedMintOperation['lastObservedRemoteState'] | undefined,
+): boolean {
+  return state === 'PAID' || state === 'ISSUED';
+}
+
+async function getLatestPendingMintOperation(
+  manager: Manager,
+  operationId: string,
+): Promise<PreparedMintOperation | null> {
+  const operation = await manager.ops.mint.get(operationId);
+  if (!operation || operation.state !== 'pending') {
+    return null;
+  }
+
+  return operation;
+}
+
+async function awaitMintQuotePaid(
+  manager: Manager,
+  pendingMint: PreparedMintOperation,
+): Promise<PreparedMintOperation | null> {
+  if (isMintQuoteReady(pendingMint.lastObservedRemoteState)) {
+    return pendingMint;
+  }
+
+  let cancelWait: (() => void) | undefined;
+  const paidEventPromise = new Promise<void>((resolve) => {
+    const off = manager.on('mint-op:quote-state-changed', (payload) => {
+      if (payload.operationId !== pendingMint.id || payload.state !== 'PAID') {
+        return;
+      }
+
+      off();
+      resolve();
+    });
+
+    cancelWait = () => {
+      off();
+      resolve();
+    };
+  });
+
+  const latestPendingMint = await getLatestPendingMintOperation(manager, pendingMint.id);
+  if (isMintQuoteReady(latestPendingMint?.lastObservedRemoteState)) {
+    cancelWait?.();
+    return latestPendingMint;
+  }
+
+  await paidEventPromise;
+  return getLatestPendingMintOperation(manager, pendingMint.id);
+}
+
+async function awaitMintQuotePaidWithSubscription(
+  manager: Manager,
+  mintUrl: string,
+  pendingMint: PreparedMintOperation,
+): Promise<PreparedMintOperation | null> {
+  if (isMintQuoteReady(pendingMint.lastObservedRemoteState)) {
+    return pendingMint;
+  }
+
+  const paidNotificationPromise = manager.subscription.awaitMintQuotePaid(
+    mintUrl,
+    pendingMint.quoteId,
+  );
+
+  const latestPendingMint = await getLatestPendingMintOperation(manager, pendingMint.id);
+  if (isMintQuoteReady(latestPendingMint?.lastObservedRemoteState)) {
+    return latestPendingMint;
+  }
+
+  await paidNotificationPromise;
+  return (await getLatestPendingMintOperation(manager, pendingMint.id)) ?? pendingMint;
+}
+
+async function mintAmount(manager: Manager, mintUrl: string, amount: number, unit: 'sat' = 'sat') {
+  const pendingMint = await prepareMintOperation(manager, mintUrl, amount, unit);
+  await awaitMintQuotePaidWithSubscription(manager, mintUrl, pendingMint);
+  await executeMintOperation(manager, pendingMint.id);
+  return pendingMint;
 }
 
 export async function runIntegrationTests<TRepositories extends Repositories = Repositories>(
@@ -217,8 +321,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
 
           await mgr.mint.addMint(mintUrl, { trusted: true });
 
-          const quote = await mgr!.quotes.createMintQuote(mintUrl, 50);
-          await mgr!.quotes.redeemMintQuote(mintUrl, quote.quote);
+          await mintAmount(mgr!, mintUrl, 50);
           await eventPromise;
         } finally {
           if (mgr) {
@@ -240,7 +343,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
             seedGetter,
             logger,
             processors: {
-              mintQuoteProcessor: {
+              mintOperationProcessor: {
                 disabled: true,
               },
             },
@@ -251,44 +354,39 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
           const initialBalance = await mgr.wallet.getBalances();
           expect(initialBalance[mintUrl] || 0).toBe(0);
 
-          const quote = await mgr.quotes.createMintQuote(mintUrl, 100);
-          expect(quote.quote).toBeDefined();
-          expect(quote.request).toBeDefined();
-          expect(quote.amount).toBe(100);
+          const pendingEventPromise = waitForEvent<{
+            mintUrl: string;
+            operationId: string;
+            operation: { quoteId: string };
+          }>(mgr!, 'mint-op:pending');
+          const pendingMint = await prepareMintOperation(mgr!, mintUrl, 100);
+          expect(pendingMint.quoteId).toBeDefined();
+          expect(pendingMint.request).toBeDefined();
+          expect(pendingMint.amount).toBe(100);
 
-          const eventPromise = new Promise((resolve) => {
-            mgr!.once('mint-quote:created', (payload) => {
-              expect(payload.mintUrl).toBe(mintUrl);
-              expect(payload.quoteId).toBe(quote.quote);
-              resolve(payload);
-            });
-          });
+          const pendingEvent = await pendingEventPromise;
+          expect(pendingEvent.mintUrl).toBe(mintUrl);
+          expect(pendingEvent.operation.quoteId).toBe(pendingMint.quoteId);
 
-          await new Promise((resolve) => {
-            mgr!.once('mint-quote:state-changed', (payload) => {
-              if (payload.state === 'PAID') {
-                expect(payload.mintUrl).toBe(mintUrl);
-                expect(payload.quoteId).toBe(quote.quote);
-                resolve(payload);
-              }
-            });
-          });
+          const paidMint = await awaitMintQuotePaid(mgr!, pendingMint);
+          expect(paidMint?.quoteId).toBe(pendingMint.quoteId);
+          expect(paidMint?.lastObservedRemoteState).toBe('PAID');
 
-          const redeemPromise = new Promise((res) => {
-            mgr!.quotes.redeemMintQuote(mintUrl, quote.quote).then(() => {
-              res(void 0);
-            });
-          });
+          const finalizedEventPromise = waitForEvent<{
+            mintUrl: string;
+            operationId: string;
+            operation: { quoteId?: string };
+          }>(
+            mgr!,
+            'mint-op:finalized',
+            (payload) => payload.operationId === pendingMint.id,
+          );
 
-          const redeemedEventPromise = new Promise((resolve) => {
-            mgr!.once('mint-quote:redeemed', (payload) => {
-              expect(payload.mintUrl).toBe(mintUrl);
-              expect(payload.quoteId).toBe(quote.quote);
-              resolve(payload);
-            });
-          });
+          await executeMintOperation(mgr!, pendingMint.id);
 
-          await Promise.all([redeemPromise, redeemedEventPromise]);
+          const finalizedEvent = await finalizedEventPromise;
+          expect(finalizedEvent.mintUrl).toBe(mintUrl);
+          expect(finalizedEvent.operation.quoteId).toBe(pendingMint.quoteId);
 
           const balance = await mgr.wallet.getBalances();
           expect(balance[mintUrl] || 0).toBeGreaterThanOrEqual(100);
@@ -310,7 +408,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
             seedGetter,
             logger,
             processors: {
-              mintQuoteProcessor: {
+              mintOperationProcessor: {
                 disabled: true,
               },
             },
@@ -318,13 +416,11 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
 
           await mgr.mint.addMint(mintUrl, { trusted: true });
 
-          const quote = await mgr.quotes.createMintQuote(mintUrl, 50);
+          const pendingMint = await prepareMintOperation(mgr!, mintUrl, 50);
 
-          const subscriptionPromise = await mgr.subscription.awaitMintQuotePaid(
-            mintUrl,
-            quote.quote,
-          );
-          const redeemPromise = await mgr.quotes.redeemMintQuote(mintUrl, quote.quote);
+          const paidMint = await awaitMintQuotePaidWithSubscription(mgr!, mintUrl, pendingMint);
+          expect(paidMint?.quoteId).toBe(pendingMint.quoteId);
+          await executeMintOperation(mgr!, pendingMint.id);
 
           const balance = await mgr.wallet.getBalances();
           expect(balance[mintUrl] || 0).toBeGreaterThanOrEqual(50);
@@ -353,8 +449,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
 
         await mgr.mint.addMint(mintUrl, { trusted: true });
 
-        const quote = await mgr.quotes.createMintQuote(mintUrl, 200);
-        await mgr.quotes.redeemMintQuote(mintUrl, quote.quote);
+        await mintAmount(mgr!, mintUrl, 200);
       });
 
       afterEach(async () => {
@@ -572,8 +667,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
 
         await mgr.mint.addMint(mintUrl, { trusted: true });
 
-        const quote = await mgr.quotes.createMintQuote(mintUrl, 200);
-        await mgr.quotes.redeemMintQuote(mintUrl, quote.quote);
+        await mintAmount(mgr!, mintUrl, 200);
       });
 
       afterEach(async () => {
@@ -627,8 +721,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
 
         const { mint, keysets } = await mgr.mint.addMint(mintUrl, { trusted: true });
 
-        const quote = await mgr.quotes.createMintQuote(mintUrl, 500);
-        await mgr.quotes.redeemMintQuote(mintUrl, quote.quote);
+        await mintAmount(mgr!, mintUrl, 500);
       });
 
       afterEach(async () => {
@@ -828,8 +921,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
 
         await mgr.mint.addMint(mintUrl, { trusted: true });
 
-        const quote = await mgr.quotes.createMintQuote(mintUrl, 100);
-        await mgr.quotes.redeemMintQuote(mintUrl, quote.quote);
+        await mintAmount(mgr!, mintUrl, 100);
       });
 
       afterEach(async () => {
@@ -916,7 +1008,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
           seedGetter,
           logger,
           watchers: {
-            mintQuoteWatcher: {
+            mintOperationWatcher: {
               disabled: true,
             },
           },
@@ -925,8 +1017,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
 
         await mgr.mint.addMint(mintUrl, { trusted: true });
 
-        const quote = await mgr.quotes.createMintQuote(mintUrl, 200);
-        await mgr.quotes.redeemMintQuote(mintUrl, quote.quote);
+        await mintAmount(mgr!, mintUrl, 200);
       });
 
       afterEach(async () => {
@@ -1120,7 +1211,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
           seedGetter,
           logger,
           watchers: {
-            mintQuoteWatcher: {
+            mintOperationWatcher: {
               disabled: true,
             },
           },
@@ -1128,8 +1219,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
 
         await mgr.mint.addMint(mintUrl, { trusted: true });
 
-        const quote = await mgr.quotes.createMintQuote(mintUrl, 300);
-        await mgr.quotes.redeemMintQuote(mintUrl, quote.quote);
+        await mintAmount(mgr!, mintUrl, 300);
       });
 
       afterEach(async () => {
@@ -1302,8 +1392,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
             counterEvents.push(payload);
           });
 
-          const quote = await mgr.quotes.createMintQuote(mintUrl, 100);
-          await mgr.quotes.redeemMintQuote(mintUrl, quote.quote);
+          await mintAmount(mgr!, mintUrl, 100);
 
           expect(counterEvents.length).toBeGreaterThan(0);
           unsubscribe();
@@ -1333,8 +1422,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
             proofsEvents.push(payload);
           });
 
-          const quote = await mgr.quotes.createMintQuote(mintUrl, 100);
-          await mgr.quotes.redeemMintQuote(mintUrl, quote.quote);
+          await mintAmount(mgr!, mintUrl, 100);
 
           expect(proofsEvents.length).toBeGreaterThan(0);
           unsubscribe();
@@ -1359,8 +1447,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
 
           await mgr.mint.addMint(mintUrl, { trusted: true });
 
-          const quote = await mgr.quotes.createMintQuote(mintUrl, 200);
-          await mgr.quotes.redeemMintQuote(mintUrl, quote.quote);
+          await mintAmount(mgr!, mintUrl, 200);
 
           const stateChanges: unknown[] = [];
           const savedProofs: unknown[] = [];
@@ -1412,9 +1499,9 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
           mgr = await initializeCoco({
             repo: repositories,
             seedGetter,
-            logger,
-            watchers: {
-              mintQuoteWatcher: {
+          logger,
+          watchers: {
+              mintOperationWatcher: {
                 watchExistingPendingOnStart: false,
               },
             },
@@ -1425,18 +1512,16 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
           const initialBalance = await mgr.wallet.getBalances();
           expect(initialBalance[mintUrl] || 0).toBe(0);
 
-          const quote = await mgr.quotes.createMintQuote(mintUrl, 150);
-
-          const redeemedPromise = new Promise((resolve) => {
-            mgr!.once('mint-quote:redeemed', (payload) => {
-              expect(payload.mintUrl).toBe(mintUrl);
-              expect(payload.quoteId).toBe(quote.quote);
-              resolve(payload);
-            });
-          });
-
-          await mgr.quotes.redeemMintQuote(mintUrl, quote.quote);
-          await redeemedPromise;
+          const finalizedPromise = waitForEvent<{
+            mintUrl: string;
+            operationId: string;
+            operation: { amount: number };
+          }>(mgr!, 'mint-op:finalized');
+          const pendingMint = await prepareMintOperation(mgr!, mintUrl, 150);
+          const finalized = await finalizedPromise;
+          expect(finalized.mintUrl).toBe(mintUrl);
+          expect(finalized.operationId).toBe(pendingMint.id);
+          expect(finalized.operation.amount).toBe(150);
 
           const balance = await mgr.wallet.getBalances();
           expect(balance[mintUrl] || 0).toBeGreaterThanOrEqual(150);
@@ -1464,8 +1549,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
           await mgr.pauseSubscriptions();
           await mgr.resumeSubscriptions();
 
-          const quote = await mgr.quotes.createMintQuote(mintUrl, 100);
-          await mgr.quotes.redeemMintQuote(mintUrl, quote.quote);
+          await mintAmount(mgr!, mintUrl, 100);
 
           const balance = await mgr.wallet.getBalances();
           expect(balance[mintUrl] || 0).toBeGreaterThanOrEqual(100);
@@ -1487,7 +1571,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
             seedGetter,
             logger,
             watchers: {
-              mintQuoteWatcher: { disabled: true },
+              mintOperationWatcher: { disabled: true },
               proofStateWatcher: { disabled: true },
             },
             subscriptions: watcherTestSubscriptions,
@@ -1495,8 +1579,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
 
           await mgr.mint.addMint(mintUrl, { trusted: true });
 
-          const quote = await mgr.quotes.createMintQuote(mintUrl, 200);
-          await mgr.quotes.redeemMintQuote(mintUrl, quote.quote);
+          await mintAmount(mgr!, mintUrl, 200);
 
           let operationId: string | undefined;
           const pendingPromise = new Promise((resolve) => {
@@ -1522,7 +1605,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
             seedGetter,
             logger,
             watchers: {
-              mintQuoteWatcher: { disabled: true },
+              mintOperationWatcher: { disabled: true },
               proofStateWatcher: { watchExistingInflightOnStart: true },
             },
             subscriptions: watcherTestSubscriptions,
@@ -1565,10 +1648,8 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
 
           await mgr.mint.addMint(mintUrl, { trusted: true });
 
-          const mintQuote = await mgr.quotes.createMintQuote(mintUrl, 500);
-          expect(mintQuote.amount).toBe(500);
-
-          await mgr.quotes.redeemMintQuote(mintUrl, mintQuote.quote);
+          const pendingMint = await mintAmount(mgr!, mintUrl, 500);
+          expect(pendingMint.amount).toBe(500);
 
           const balanceAfterMint = await mgr.wallet.getBalances();
           expect(balanceAfterMint[mintUrl] || 0).toBeGreaterThanOrEqual(500);
@@ -1950,8 +2031,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
         await mgr.mint.addMint(mintUrl, { trusted: true });
 
         // Fund the wallet
-        const quote = await mgr.quotes.createMintQuote(mintUrl, 200);
-        await mgr.quotes.redeemMintQuote(mintUrl, quote.quote);
+        await mintAmount(mgr!, mintUrl, 200);
       });
 
       afterEach(async () => {
@@ -2201,7 +2281,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
           seedGetter,
           logger,
           watchers: {
-            mintQuoteWatcher: { disabled: true },
+            mintOperationWatcher: { disabled: true },
             proofStateWatcher: { disabled: true },
           },
         });
@@ -2405,8 +2485,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
         await mgr.mint.addMint(mintUrl, { trusted: true });
 
         // Fund the wallet
-        const quote = await mgr.quotes.createMintQuote(mintUrl, 200);
-        await mgr.quotes.redeemMintQuote(mintUrl, quote.quote);
+        await mintAmount(mgr!, mintUrl, 200);
       });
 
       afterEach(async () => {

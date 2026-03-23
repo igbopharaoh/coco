@@ -1,4 +1,5 @@
-import type { MeltQuoteState, MintQuoteState, Token } from '@cashu/cashu-ts';
+import type { MeltQuoteState, Token } from '@cashu/cashu-ts';
+import type { MintQuoteState } from './MintQuoteState';
 
 type BaseHistoryEntry = {
   id: string;

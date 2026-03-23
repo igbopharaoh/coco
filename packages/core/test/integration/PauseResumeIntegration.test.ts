@@ -18,12 +18,12 @@ describe('Pause/Resume Integration Test', () => {
       logger: new NullLogger(),
       // Use faster intervals for testing
       watchers: {
-        mintQuoteWatcher: {
+        mintOperationWatcher: {
           watchExistingPendingOnStart: true,
         },
       },
       processors: {
-        mintQuoteProcessor: {
+        mintOperationProcessor: {
           processIntervalMs: 500,
           baseRetryDelayMs: 1000,
           maxRetries: 3,
@@ -42,17 +42,22 @@ describe('Pause/Resume Integration Test', () => {
 
   it('should pause and resume subscriptions with real mint', async () => {
     // Verify initial state - watchers and processor should be running
-    expect(manager['mintQuoteWatcher']?.isRunning()).toBe(true);
+    expect(manager['mintOperationWatcher']?.isRunning()).toBe(true);
     expect(manager['proofStateWatcher']?.isRunning()).toBe(true);
-    expect(manager['mintQuoteProcessor']?.isRunning()).toBe(true);
+    expect(manager['mintOperationProcessor']?.isRunning()).toBe(true);
 
     // Add mint first (as trusted, since createMintQuote requires trust)
     await manager.mint.addMint(mintUrl, { trusted: true });
 
     // Create a mint quote
-    const quote1 = await manager.quotes.createMintQuote(mintUrl, 1);
-    expect(quote1.quote).toBeDefined();
-    console.log('Created quote 1:', quote1.quote);
+    const pendingMint1 = await manager.ops.mint.prepare({
+      mintUrl,
+      amount: 1,
+      method: 'bolt11',
+      methodData: {},
+    });
+    expect(pendingMint1.quoteId).toBeDefined();
+    console.log('Created quote 1:', pendingMint1.quoteId);
 
     // Wait a bit for watchers to start watching
     await sleep(200);
@@ -62,23 +67,28 @@ describe('Pause/Resume Integration Test', () => {
     await manager.pauseSubscriptions();
 
     // Verify watchers and processor are stopped
-    expect(manager['mintQuoteWatcher']).toBeUndefined();
+    expect(manager['mintOperationWatcher']).toBeUndefined();
     expect(manager['proofStateWatcher']).toBeUndefined();
-    expect(manager['mintQuoteProcessor']).toBeUndefined();
+    expect(manager['mintOperationProcessor']).toBeUndefined();
 
     // Create another quote while paused (this should still work - just creating locally)
-    const quote2 = await manager.quotes.createMintQuote(mintUrl, 1);
-    expect(quote2.quote).toBeDefined();
-    console.log('Created quote 2 while paused:', quote2.quote);
+    const pendingMint2 = await manager.ops.mint.prepare({
+      mintUrl,
+      amount: 1,
+      method: 'bolt11',
+      methodData: {},
+    });
+    expect(pendingMint2.quoteId).toBeDefined();
+    console.log('Created quote 2 while paused:', pendingMint2.quoteId);
 
     // Resume subscriptions
     console.log('Resuming subscriptions...');
     await manager.resumeSubscriptions();
 
     // Verify watchers and processor are running again
-    expect(manager['mintQuoteWatcher']?.isRunning()).toBe(true);
+    expect(manager['mintOperationWatcher']?.isRunning()).toBe(true);
     expect(manager['proofStateWatcher']?.isRunning()).toBe(true);
-    expect(manager['mintQuoteProcessor']?.isRunning()).toBe(true);
+    expect(manager['mintOperationProcessor']?.isRunning()).toBe(true);
 
     console.log('Pause/Resume cycle completed successfully');
   }, 30000); // 30 second timeout for this integration test
@@ -88,19 +98,24 @@ describe('Pause/Resume Integration Test', () => {
 
     // First pause/resume cycle
     await manager.pauseSubscriptions();
-    expect(manager['mintQuoteWatcher']).toBeUndefined();
+    expect(manager['mintOperationWatcher']).toBeUndefined();
     await manager.resumeSubscriptions();
-    expect(manager['mintQuoteWatcher']?.isRunning()).toBe(true);
+    expect(manager['mintOperationWatcher']?.isRunning()).toBe(true);
 
     // Second pause/resume cycle
     await manager.pauseSubscriptions();
-    expect(manager['mintQuoteWatcher']).toBeUndefined();
+    expect(manager['mintOperationWatcher']).toBeUndefined();
     await manager.resumeSubscriptions();
-    expect(manager['mintQuoteWatcher']?.isRunning()).toBe(true);
+    expect(manager['mintOperationWatcher']?.isRunning()).toBe(true);
 
     // Create a quote after multiple cycles
-    const quote = await manager.quotes.createMintQuote(mintUrl, 1);
-    expect(quote.quote).toBeDefined();
+    const pendingMint = await manager.ops.mint.prepare({
+      mintUrl,
+      amount: 1,
+      method: 'bolt11',
+      methodData: {},
+    });
+    expect(pendingMint.quoteId).toBeDefined();
 
     // Wait for it to potentially be redeemed
     await sleep(3000);
@@ -115,8 +130,13 @@ describe('Pause/Resume Integration Test', () => {
     await manager.mint.addMint(mintUrl, { trusted: true });
 
     // Create a quote with subscriptions active
-    const quote = await manager.quotes.createMintQuote(mintUrl, 1);
-    expect(quote.quote).toBeDefined();
+    const pendingMint = await manager.ops.mint.prepare({
+      mintUrl,
+      amount: 1,
+      method: 'bolt11',
+      methodData: {},
+    });
+    expect(pendingMint.quoteId).toBeDefined();
 
     // Simulate OS tearing down connections without explicit pause
     // Just call resume directly (as if recovering from background)
@@ -124,15 +144,9 @@ describe('Pause/Resume Integration Test', () => {
     await manager.resumeSubscriptions();
 
     // Everything should still be running
-    expect(manager['mintQuoteWatcher']?.isRunning()).toBe(true);
+    expect(manager['mintOperationWatcher']?.isRunning()).toBe(true);
     expect(manager['proofStateWatcher']?.isRunning()).toBe(true);
-    expect(manager['mintQuoteProcessor']?.isRunning()).toBe(true);
-
-    // Set up event listener
-    const redeemedQuotes: string[] = [];
-    manager.on('mint-quote:redeemed', ({ quoteId }) => {
-      redeemedQuotes.push(quoteId);
-    });
+    expect(manager['mintOperationProcessor']?.isRunning()).toBe(true);
 
     // Wait for processing
     await sleep(5000);
@@ -156,30 +170,30 @@ describe('Pause/Resume Integration Test', () => {
       seedGetter,
       logger: new NullLogger(),
       watchers: {
-        mintQuoteWatcher: { disabled: true },
+        mintOperationWatcher: { disabled: true },
         proofStateWatcher: { disabled: false },
       },
       processors: {
-        mintQuoteProcessor: { disabled: false },
+        mintOperationProcessor: { disabled: false },
       },
     });
 
     // Verify initial state
-    expect(manager['mintQuoteWatcher']).toBeUndefined();
+    expect(manager['mintOperationWatcher']).toBeUndefined();
     expect(manager['proofStateWatcher']?.isRunning()).toBe(true);
-    expect(manager['mintQuoteProcessor']?.isRunning()).toBe(true);
+    expect(manager['mintOperationProcessor']?.isRunning()).toBe(true);
 
     // Pause
     await manager.pauseSubscriptions();
     expect(manager['proofStateWatcher']).toBeUndefined();
-    expect(manager['mintQuoteProcessor']).toBeUndefined();
+    expect(manager['mintOperationProcessor']).toBeUndefined();
 
     // Resume
     await manager.resumeSubscriptions();
 
-    // Verify configuration is respected - mintQuoteWatcher should stay disabled
-    expect(manager['mintQuoteWatcher']).toBeUndefined();
+    // Verify configuration is respected - mintOperationWatcher should stay disabled
+    expect(manager['mintOperationWatcher']).toBeUndefined();
     expect(manager['proofStateWatcher']?.isRunning()).toBe(true);
-    expect(manager['mintQuoteProcessor']?.isRunning()).toBe(true);
+    expect(manager['mintOperationProcessor']?.isRunning()).toBe(true);
   });
 });

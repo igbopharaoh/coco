@@ -400,18 +400,16 @@ bun run build
 
 # Check if any browser tests will be run and install Playwright if needed
 check_and_install_playwright() {
-    local needs_playwright=false
-
     if [ "$COMMAND" = "all" ]; then
         # Check all packages for browser tests
-        discover_integration_tests | while IFS='|' read -r package test_file; do
+        while IFS='|' read -r package test_file; do
             [ -z "$package" ] && continue
             local pkg_dir=$(dirname "$test_file" | sed 's|/src/test||')
             if is_browser_test_package "$pkg_dir"; then
                 echo "true"
                 return
             fi
-        done
+        done < <(discover_integration_tests)
     else
         # Check specific package
         local test_file_path

@@ -82,11 +82,11 @@ describe('Auth BAT (automated — password grant)', () => {
       repo: repositories,
       seedGetter: async () => new Uint8Array(64),
       watchers: {
-        mintQuoteWatcher: { disabled: true },
+        mintOperationWatcher: { disabled: true },
         proofStateWatcher: { disabled: true },
       },
       processors: {
-        mintQuoteProcessor: { disabled: true },
+        mintOperationProcessor: { disabled: true },
       },
     });
 
@@ -99,9 +99,14 @@ describe('Auth BAT (automated — password grant)', () => {
     expect(provider).toBeDefined();
     expect(mgr.auth.getPoolSize(mintUrl)).toBe(0);
 
-    const quote = await mgr.quotes.createMintQuote(mintUrl, 1);
-    expect(quote).toBeDefined();
-    expect(quote.quote).toBeDefined();
+    const pendingMint = await mgr.ops.mint.prepare({
+      mintUrl,
+      amount: 1,
+      method: 'bolt11',
+      methodData: {},
+    });
+    expect(pendingMint).toBeDefined();
+    expect(pendingMint.quoteId).toBeDefined();
 
     expect(mgr.auth.getPoolSize(mintUrl)).toBe(0);
   });
@@ -120,11 +125,11 @@ describe('Auth BAT (automated — password grant)', () => {
       repo: repositories,
       seedGetter: async () => new Uint8Array(64),
       watchers: {
-        mintQuoteWatcher: { disabled: true },
+        mintOperationWatcher: { disabled: true },
         proofStateWatcher: { disabled: true },
       },
       processors: {
-        mintQuoteProcessor: { disabled: true },
+        mintOperationProcessor: { disabled: true },
       },
     });
 
@@ -134,9 +139,14 @@ describe('Auth BAT (automated — password grant)', () => {
     const provider2 = mgr2.auth.getAuthProvider(mintUrl) as AuthProvider;
     expect(provider2).toBeDefined();
 
-    const quote = await mgr2.quotes.createMintQuote(mintUrl, 1);
-    expect(quote).toBeDefined();
-    expect(quote.quote).toBeDefined();
+    const pendingMint = await mgr2.ops.mint.prepare({
+      mintUrl,
+      amount: 1,
+      method: 'bolt11',
+      methodData: {},
+    });
+    expect(pendingMint).toBeDefined();
+    expect(pendingMint.quoteId).toBeDefined();
 
     await provider2.ensure!(2);
     expect(mgr2.auth.getPoolSize(mintUrl)).toBeGreaterThanOrEqual(2);

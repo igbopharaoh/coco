@@ -10,6 +10,7 @@ import type { Keypair } from '@core/models/Keypair';
 import type { MeltQuote } from '@core/models/MeltQuote';
 import type { MintQuote } from '@core/models/MintQuote';
 import type { MeltOperation, MeltOperationState } from '@core/operations/melt/MeltOperation';
+import type { MintOperation, MintOperationState } from '@core/operations/mint/MintOperation';
 import type {
   ReceiveOperation,
   ReceiveOperationState,
@@ -199,6 +200,32 @@ export interface AuthSessionRepository {
   getAllSessions(): Promise<AuthSession[]>;
 }
 
+export interface MintOperationRepository {
+  /** Create a new mint operation */
+  create(operation: MintOperation): Promise<void>;
+
+  /** Update an existing mint operation */
+  update(operation: MintOperation): Promise<void>;
+
+  /** Get a mint operation by ID */
+  getById(id: string): Promise<MintOperation | null>;
+
+  /** Get all mint operations in a specific state */
+  getByState(state: MintOperationState): Promise<MintOperation[]>;
+
+  /** Get all in-flight operations (state in ['pending', 'executing']) */
+  getPending(): Promise<MintOperation[]>;
+
+  /** Get all operations for a specific mint */
+  getByMintUrl(mintUrl: string): Promise<MintOperation[]>;
+
+  /** Get all operations for a mint/quote pair */
+  getByQuoteId(mintUrl: string, quoteId: string): Promise<MintOperation[]>;
+
+  /** Delete a mint operation */
+  delete(id: string): Promise<void>;
+}
+
 export interface ReceiveOperationRepository {
   /** Create a new receive operation */
   create(operation: ReceiveOperation): Promise<void>;
@@ -234,6 +261,7 @@ interface RepositoriesBase {
   sendOperationRepository: SendOperationRepository;
   meltOperationRepository: MeltOperationRepository;
   authSessionRepository: AuthSessionRepository;
+  mintOperationRepository: MintOperationRepository;
   receiveOperationRepository: ReceiveOperationRepository;
 }
 

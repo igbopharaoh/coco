@@ -369,6 +369,165 @@ const MIGRATIONS: readonly Migration[] = [
       );
     `,
   },
+  {
+    id: '018_mint_operations',
+    sql: `
+      CREATE TABLE IF NOT EXISTS coco_cashu_mint_operations (
+        id TEXT PRIMARY KEY NOT NULL,
+        mintUrl TEXT NOT NULL,
+        quoteId TEXT,
+        state TEXT NOT NULL CHECK (state IN ('init', 'pending', 'executing', 'finalized', 'failed')),
+        createdAt INTEGER NOT NULL,
+        updatedAt INTEGER NOT NULL,
+        error TEXT,
+        method TEXT NOT NULL,
+        methodDataJson TEXT NOT NULL,
+        amount INTEGER,
+        unit TEXT,
+        request TEXT,
+        expiry INTEGER,
+        pubkey TEXT,
+        lastObservedRemoteState TEXT,
+        lastObservedRemoteStateAt INTEGER,
+        terminalFailureJson TEXT,
+        outputDataJson TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_coco_cashu_mint_operations_state
+        ON coco_cashu_mint_operations(state);
+      CREATE INDEX IF NOT EXISTS idx_coco_cashu_mint_operations_mint
+        ON coco_cashu_mint_operations(mintUrl);
+      CREATE INDEX IF NOT EXISTS idx_coco_cashu_mint_operations_mint_quote
+        ON coco_cashu_mint_operations(mintUrl, quoteId)
+        WHERE quoteId IS NOT NULL;
+    `,
+  },
+  {
+    id: '019_mint_operations_pending_lifecycle',
+    sql: `
+      ALTER TABLE coco_cashu_mint_operations RENAME TO coco_cashu_mint_operations_legacy;
+
+      CREATE TABLE coco_cashu_mint_operations (
+        id TEXT PRIMARY KEY NOT NULL,
+        mintUrl TEXT NOT NULL,
+        quoteId TEXT,
+        state TEXT NOT NULL CHECK (state IN ('init', 'pending', 'executing', 'finalized', 'failed')),
+        createdAt INTEGER NOT NULL,
+        updatedAt INTEGER NOT NULL,
+        error TEXT,
+        method TEXT NOT NULL,
+        methodDataJson TEXT NOT NULL,
+        amount INTEGER,
+        unit TEXT,
+        request TEXT,
+        expiry INTEGER,
+        pubkey TEXT,
+        lastObservedRemoteState TEXT,
+        lastObservedRemoteStateAt INTEGER,
+        terminalFailureJson TEXT,
+        outputDataJson TEXT
+      );
+
+      INSERT INTO coco_cashu_mint_operations (
+        id, mintUrl, quoteId, state, createdAt, updatedAt, error, method, methodDataJson, amount, unit, request, expiry, pubkey, lastObservedRemoteState, lastObservedRemoteStateAt, terminalFailureJson, outputDataJson
+      )
+      SELECT
+        id,
+        mintUrl,
+        quoteId,
+        CASE
+          WHEN state = 'prepared' THEN 'pending'
+          WHEN state = 'rolled_back' THEN 'finalized'
+          ELSE state
+        END,
+        createdAt,
+        updatedAt,
+        error,
+        method,
+        methodDataJson,
+        amount,
+        unit,
+        request,
+        expiry,
+        pubkey,
+        lastObservedRemoteState,
+        lastObservedRemoteStateAt,
+        terminalFailureJson,
+        outputDataJson
+      FROM coco_cashu_mint_operations_legacy;
+
+      DROP TABLE coco_cashu_mint_operations_legacy;
+
+      CREATE INDEX IF NOT EXISTS idx_coco_cashu_mint_operations_state
+        ON coco_cashu_mint_operations(state);
+      CREATE INDEX IF NOT EXISTS idx_coco_cashu_mint_operations_mint
+        ON coco_cashu_mint_operations(mintUrl);
+      CREATE INDEX IF NOT EXISTS idx_coco_cashu_mint_operations_mint_quote
+        ON coco_cashu_mint_operations(mintUrl, quoteId)
+        WHERE quoteId IS NOT NULL;
+    `,
+  },
+  {
+    id: '020_mint_operations_failed_state',
+    sql: `
+      ALTER TABLE coco_cashu_mint_operations RENAME TO coco_cashu_mint_operations_legacy;
+
+      CREATE TABLE coco_cashu_mint_operations (
+        id TEXT PRIMARY KEY NOT NULL,
+        mintUrl TEXT NOT NULL,
+        quoteId TEXT,
+        state TEXT NOT NULL CHECK (state IN ('init', 'pending', 'executing', 'finalized', 'failed')),
+        createdAt INTEGER NOT NULL,
+        updatedAt INTEGER NOT NULL,
+        error TEXT,
+        method TEXT NOT NULL,
+        methodDataJson TEXT NOT NULL,
+        amount INTEGER,
+        unit TEXT,
+        request TEXT,
+        expiry INTEGER,
+        pubkey TEXT,
+        lastObservedRemoteState TEXT,
+        lastObservedRemoteStateAt INTEGER,
+        terminalFailureJson TEXT,
+        outputDataJson TEXT
+      );
+
+      INSERT INTO coco_cashu_mint_operations (
+        id, mintUrl, quoteId, state, createdAt, updatedAt, error, method, methodDataJson, amount, unit, request, expiry, pubkey, lastObservedRemoteState, lastObservedRemoteStateAt, terminalFailureJson, outputDataJson
+      )
+      SELECT
+        id,
+        mintUrl,
+        quoteId,
+        state,
+        createdAt,
+        updatedAt,
+        error,
+        method,
+        methodDataJson,
+        amount,
+        unit,
+        request,
+        expiry,
+        pubkey,
+        lastObservedRemoteState,
+        lastObservedRemoteStateAt,
+        terminalFailureJson,
+        outputDataJson
+      FROM coco_cashu_mint_operations_legacy;
+
+      DROP TABLE coco_cashu_mint_operations_legacy;
+
+      CREATE INDEX IF NOT EXISTS idx_coco_cashu_mint_operations_state
+        ON coco_cashu_mint_operations(state);
+      CREATE INDEX IF NOT EXISTS idx_coco_cashu_mint_operations_mint
+        ON coco_cashu_mint_operations(mintUrl);
+      CREATE INDEX IF NOT EXISTS idx_coco_cashu_mint_operations_mint_quote
+        ON coco_cashu_mint_operations(mintUrl, quoteId)
+        WHERE quoteId IS NOT NULL;
+    `,
+  },
 ];
 
 // Export for testing

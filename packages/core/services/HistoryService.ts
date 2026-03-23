@@ -1,8 +1,6 @@
 import type {
   MeltQuoteBolt11Response,
   MeltQuoteState,
-  MintQuoteBolt11Response,
-  MintQuoteState,
   Token,
 } from '@cashu/cashu-ts';
 import type { HistoryRepository } from '../repositories';
@@ -16,6 +14,8 @@ import type {
   SendHistoryEntry,
   SendHistoryState,
 } from '@core/models/History';
+import type { PendingMintOperation } from '@core/operations/mint';
+import type { MintQuoteState } from '@core/models/MintQuoteState';
 import type { Logger } from '@core/logging';
 import type { SendOperation } from '@core/operations/send/SendOperation';
 
@@ -32,14 +32,12 @@ export class HistoryService {
     this.historyRepository = historyRepository;
     this.logger = logger;
     this.eventBus = eventBus;
-    this.eventBus.on('mint-quote:state-changed', ({ mintUrl, quoteId, state }) => {
-      this.handleMintQuoteStateChanged(mintUrl, quoteId, state);
+    this.eventBus.on('mint-op:pending', ({ mintUrl, operation }) => {
+      if (operation.state !== 'pending') return;
+      this.handleMintOperationPending(mintUrl, operation as PendingMintOperation);
     });
-    this.eventBus.on('mint-quote:created', ({ mintUrl, quoteId, quote }) => {
-      this.handleMintQuoteCreated(mintUrl, quoteId, quote);
-    });
-    this.eventBus.on('mint-quote:added', ({ mintUrl, quoteId, quote }) => {
-      this.handleMintQuoteAdded(mintUrl, quoteId, quote);
+    this.eventBus.on('mint-op:quote-state-changed', ({ mintUrl, operationId, quoteId, state }) => {
+      this.handleMintOperationQuoteStateChanged(mintUrl, operationId, quoteId, state);
     });
     this.eventBus.on('melt-quote:created', ({ mintUrl, quoteId, quote }) => {
       this.handleMeltQuoteCreated(mintUrl, quoteId, quote);
@@ -174,13 +172,19 @@ export class HistoryService {
     }
   }
 
-  async handleMintQuoteStateChanged(mintUrl: string, quoteId: string, state: MintQuoteState) {
+  async handleMintOperationQuoteStateChanged(
+    mintUrl: string,
+    operationId: string,
+    quoteId: string,
+    state: MintQuoteState,
+  ) {
     try {
       const entry = await this.historyRepository.getMintHistoryEntry(mintUrl, quoteId);
       if (!entry) {
-        this.logger?.error('Mint quote state changed history entry not found', {
+        this.logger?.error('Mint operation quote state changed history entry not found', {
           mintUrl,
           quoteId,
+          operationId,
         });
         return;
       }
@@ -188,9 +192,10 @@ export class HistoryService {
       await this.historyRepository.updateHistoryEntry(entry);
       await this.handleHistoryUpdated(mintUrl, { ...entry, state });
     } catch (err) {
-      this.logger?.error('Failed to add mint quote state changed history entry', {
+      this.logger?.error('Failed to update mint operation history state', {
         mintUrl,
         quoteId,
+        operationId,
         err,
       });
     }
@@ -239,58 +244,43 @@ export class HistoryService {
     }
   }
 
-  async handleMintQuoteCreated(mintUrl: string, quoteId: string, quote: MintQuoteBolt11Response) {
+  async handleMintOperationPending(mintUrl: string, operation: PendingMintOperation) {
     const entry: Omit<MintHistoryEntry, 'id'> = {
       type: 'mint',
       mintUrl,
-      unit: quote.unit,
-      paymentRequest: quote.request,
-      quoteId,
-      state: quote.state,
-      createdAt: Date.now(),
-      amount: quote.amount,
+      unit: operation.unit,
+      paymentRequest: operation.request,
+      quoteId: operation.quoteId,
+      state: operation.lastObservedRemoteState ?? 'UNPAID',
+      createdAt: operation.createdAt,
+      amount: operation.amount,
     };
-    try {
-      await this.historyRepository.addHistoryEntry(entry);
-    } catch (err) {
-      this.logger?.error('Failed to add mint quote created history entry', {
-        mintUrl,
-        quoteId,
-        err,
-      });
-    }
-  }
 
-  async handleMintQuoteAdded(mintUrl: string, quoteId: string, quote: MintQuoteBolt11Response) {
-    // Check if history entry already exists for this quote
-    const existing = await this.historyRepository.getMintHistoryEntry(mintUrl, quoteId);
-    if (existing) {
-      this.logger?.debug('History entry already exists for added mint quote', { mintUrl, quoteId });
-      return;
-    }
-
-    const entry: Omit<MintHistoryEntry, 'id'> = {
-      type: 'mint',
-      mintUrl,
-      unit: quote.unit,
-      paymentRequest: quote.request,
-      quoteId,
-      state: quote.state,
-      createdAt: Date.now(),
-      amount: quote.amount,
-    };
     try {
+      const existing = await this.historyRepository.getMintHistoryEntry(mintUrl, operation.quoteId);
+      if (existing) {
+        existing.unit = entry.unit;
+        existing.paymentRequest = entry.paymentRequest;
+        existing.state = entry.state;
+        existing.amount = entry.amount;
+        const updated = await this.historyRepository.updateHistoryEntry(existing);
+        await this.handleHistoryUpdated(mintUrl, updated);
+        return;
+      }
+
       const created = await this.historyRepository.addHistoryEntry(entry);
-      await this.eventBus.emit('history:updated', { mintUrl, entry: created });
-      this.logger?.debug('Added history entry for externally added mint quote', {
+      await this.handleHistoryUpdated(mintUrl, created);
+      this.logger?.debug('Added history entry for pending mint operation', {
         mintUrl,
-        quoteId,
-        state: quote.state,
+        quoteId: operation.quoteId,
+        operationId: operation.id,
+        state: entry.state,
       });
     } catch (err) {
-      this.logger?.error('Failed to add mint quote added history entry', {
+      this.logger?.error('Failed to add pending mint operation history entry', {
         mintUrl,
-        quoteId,
+        quoteId: operation.quoteId,
+        operationId: operation.id,
         err,
       });
     }

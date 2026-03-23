@@ -1,76 +1,44 @@
-import type { MintQuoteBolt11Response } from '@cashu/cashu-ts';
+import type {
+  MintMethod,
+  MintMethodData,
+  MintMethodQuoteSnapshot,
+  MintOperation,
+  MintOperationService,
+  PendingMintCheckResult,
+  PendingMintOperation,
+  TerminalMintOperation,
+} from '@core/operations/mint';
 
-export interface PrepareMintInput {
-  /** Mint that will issue the quote-backed mint operation. */
-  mintUrl: string;
-  /** Amount to mint in sats. */
-  amount: number;
-}
+/** Mint methods supported by the default `Manager` wiring. */
+export type DefaultSupportedMintMethod = 'bolt11';
 
-export interface AwaitMintPaymentInput {
-  /** Managed operation ID to wait on. */
-  operationId?: string;
-  /** Mint URL for quote lookup when no operation ID is available. */
-  mintUrl?: string;
-  /** Quote ID for quote lookup when no operation ID is available. */
-  quoteId?: string;
-}
+export type PrepareMintInput<TSupported extends MintMethod = DefaultSupportedMintMethod> = {
+  [M in TSupported]: {
+    /** Mint that will execute the quote-backed mint operation. */
+    mintUrl: string;
+    /** Amount to request from the mint. */
+    amount: number;
+    /** Unit to request from the mint. Only `sat` is currently supported. */
+    unit?: 'sat';
+    /** Mint method to prepare, for example `bolt11`. */
+    method: M;
+    /** Method-specific payload required for the selected mint method. */
+    methodData: MintMethodData<M>;
+  };
+}[TSupported];
 
-export interface ImportMintQuotesInput {
-  /** Mint that created the external quotes. */
-  mintUrl: string;
-  /** Quote payloads to import into managed operations. */
-  quotes: MintQuoteBolt11Response[];
-}
-
-export interface RequeuePaidMintQuotesInput {
-  /** Optional mint filter for paid quotes to requeue. */
-  mintUrl?: string;
-}
-
-export type MintOperationState = 'prepared' | 'pending' | 'finalized' | 'failed' | 'rolled_back';
-
-interface MintOperationBase {
-  /** Unique identifier for this operation. */
-  id: string;
-  /** Mint URL associated with the quote-backed operation. */
-  mintUrl: string;
-  /** Timestamp when the operation was created. */
-  createdAt: number;
-  /** Timestamp when the operation was last updated. */
-  updatedAt: number;
-  /** Error message if the operation failed. */
-  error?: string;
-  /** Full mint quote payload backing the operation. */
-  quote: MintQuoteBolt11Response;
-}
-
-export interface PreparedMintOperation extends MintOperationBase {
-  state: 'prepared';
-}
-
-export interface PendingMintOperation extends MintOperationBase {
-  state: 'pending';
-}
-
-export interface FinalizedMintOperation extends MintOperationBase {
-  state: 'finalized';
-}
-
-export interface FailedMintOperation extends MintOperationBase {
-  state: 'failed';
-}
-
-export interface RolledBackMintOperation extends MintOperationBase {
-  state: 'rolled_back';
-}
-
-export type MintOperation =
-  | PreparedMintOperation
-  | PendingMintOperation
-  | FinalizedMintOperation
-  | FailedMintOperation
-  | RolledBackMintOperation;
+export type ImportMintQuoteInput<TSupported extends MintMethod = DefaultSupportedMintMethod> = {
+  [M in TSupported]: {
+    /** Mint that issued the existing quote. */
+    mintUrl: string;
+    /** Existing quote snapshot to track as an operation. */
+    quote: MintMethodQuoteSnapshot<M>;
+    /** Mint method to prepare, for example `bolt11`. */
+    method: M;
+    /** Method-specific payload required for the selected mint method. */
+    methodData: MintMethodData<M>;
+  };
+}[TSupported];
 
 export interface MintRecoveryApi {
   /** Runs the startup-style recovery sweep for mint operations. */
@@ -85,71 +53,150 @@ export interface MintDiagnosticsApi {
 }
 
 /**
- * Operation-oriented API shell for quote-backed mint workflows.
+ * Operation-oriented API for quote-backed mint workflows.
+ *
+ * This API makes the mint lifecycle explicit so callers can prepare a quote,
+ * move it into a durable pending state, execute it, and inspect its progress.
  */
-export class MintOpsApi {
+export class MintOpsApi<TSupported extends MintMethod = DefaultSupportedMintMethod> {
+  /** Recovery helpers for mint operations. */
   readonly recovery: MintRecoveryApi = {
-    run: async () => {
-      throw this.notImplemented();
-    },
-    inProgress: () => false,
+    run: async () => this.mintOperationService.recoverPendingOperations(),
+    inProgress: () => this.mintOperationService.isRecoveryInProgress(),
   };
 
+  /** Lightweight diagnostics for mint operations. */
   readonly diagnostics: MintDiagnosticsApi = {
-    isLocked: () => false,
+    isLocked: (operationId: string) => this.mintOperationService.isOperationLocked(operationId),
   };
 
-  async prepare(_input: PrepareMintInput): Promise<PreparedMintOperation> {
-    throw this.notImplemented();
+  constructor(private readonly mintOperationService: MintOperationService) {}
+
+  private assertSupportedUnit(unit: string): void {
+    if (unit !== 'sat') {
+      throw new Error(`Unsupported mint unit '${unit}'. Only 'sat' is currently supported.`);
+    }
   }
 
-  async execute(
-    _operationOrId: MintOperation | string,
-  ): Promise<PendingMintOperation | FinalizedMintOperation> {
-    throw this.notImplemented();
+  /**
+   * Creates a new remote quote, then persists a prepared mint operation without executing it.
+   */
+  async prepare(input: PrepareMintInput<TSupported>): Promise<PendingMintOperation> {
+    const unit = input.unit ?? 'sat';
+    this.assertSupportedUnit(unit);
+
+    return this.mintOperationService.prepareNewQuote(
+      input.mintUrl,
+      input.amount,
+      unit,
+      input.method,
+      input.methodData,
+    );
   }
 
-  async get(_operationId: string): Promise<MintOperation | null> {
-    throw this.notImplemented();
+  /**
+   * Imports an existing quote snapshot into a prepared mint operation without executing it.
+   */
+  async importQuote(input: ImportMintQuoteInput<TSupported>): Promise<PendingMintOperation> {
+    this.assertSupportedUnit(input.quote.unit);
+
+    return this.mintOperationService.importQuote(
+      input.mintUrl,
+      input.quote,
+      input.method,
+      input.methodData,
+    );
   }
 
-  async getByQuote(_mintUrl: string, _quoteId: string): Promise<MintOperation | null> {
-    throw this.notImplemented();
+  /**
+   * Executes a pending mint operation and returns its terminal state.
+   */
+  async execute(operationOrId: MintOperation | string): Promise<TerminalMintOperation> {
+    const operation = await this.resolveOperation(operationOrId);
+    if (operation.state !== 'pending') {
+      throw new Error(
+        `Cannot execute operation in state '${operation.state}'. Expected 'pending'.`,
+      );
+    }
+
+    return this.mintOperationService.execute(operation.id);
   }
 
-  async listPrepared(): Promise<PreparedMintOperation[]> {
-    throw this.notImplemented();
+  /** Returns a mint operation by ID, or `null` when it does not exist. */
+  async get(operationId: string): Promise<MintOperation | null> {
+    return this.mintOperationService.getOperation(operationId);
   }
 
+  /** Returns a mint operation by mint URL and quote ID, or `null` if not found. */
+  async getByQuote(mintUrl: string, quoteId: string): Promise<MintOperation | null> {
+    return this.mintOperationService.getOperationByQuote(mintUrl, quoteId);
+  }
+
+  /** Lists mint operations that are pending redemption or remote settlement. */
+  async listPending(): Promise<PendingMintOperation[]> {
+    return this.mintOperationService.getPendingOperations();
+  }
+
+  /** Lists mint operations that are pending or currently executing. */
   async listInFlight(): Promise<MintOperation[]> {
-    throw this.notImplemented();
+    return this.mintOperationService.getInFlightOperations();
   }
 
-  async refresh(_operationId: string): Promise<MintOperation> {
-    throw this.notImplemented();
+  /**
+   * Checks the remote quote state for a pending mint operation.
+   * Paid or issued quotes are reconciled immediately.
+   */
+  async checkPayment(operationId: string): Promise<PendingMintCheckResult> {
+    const operation = await this.requireOperation(operationId);
+    if (operation.state !== 'pending') {
+      throw new Error(`Cannot check payment in state '${operation.state}'. Expected 'pending'.`);
+    }
+
+    return this.mintOperationService.checkPendingOperation(operation.id);
   }
 
-  async cancel(_operationId: string, _reason?: string): Promise<void> {
-    throw this.notImplemented();
+  /**
+   * Re-checks a mint operation and returns its latest persisted state.
+   */
+  async refresh(operationId: string): Promise<MintOperation> {
+    const operation = await this.requireOperation(operationId);
+    if (operation.state === 'pending') {
+      await this.mintOperationService.checkPendingOperation(operation.id);
+      return this.requireOperation(operationId);
+    }
+
+    if (operation.state === 'executing') {
+      await this.mintOperationService.recoverExecutingOperation(operation);
+      return this.requireOperation(operationId);
+    }
+
+    return operation;
   }
 
-  async awaitPayment(_input: AwaitMintPaymentInput): Promise<MintOperation> {
-    throw this.notImplemented();
+  /**
+   * Attempts to finalize a mint operation explicitly.
+   *
+   * Pending operations are executed, executing operations are recovered,
+   * and terminal operations are returned as-is.
+   */
+  async finalize(operationId: string): Promise<TerminalMintOperation> {
+    return this.mintOperationService.finalize(operationId);
   }
 
-  async importQuotes(
-    _input: ImportMintQuotesInput,
-  ): Promise<{ added: string[]; skipped: string[] }> {
-    throw this.notImplemented();
+  private async resolveOperation(operationOrId: MintOperation | string): Promise<MintOperation> {
+    if (typeof operationOrId === 'string') {
+      return this.requireOperation(operationOrId);
+    }
+
+    return this.requireOperation(operationOrId.id);
   }
 
-  async requeuePaid(
-    _input?: RequeuePaidMintQuotesInput,
-  ): Promise<{ requeued: string[] }> {
-    throw this.notImplemented();
-  }
+  private async requireOperation(operationId: string): Promise<MintOperation> {
+    const operation = await this.mintOperationService.getOperation(operationId);
+    if (!operation) {
+      throw new Error(`Operation ${operationId} not found`);
+    }
 
-  private notImplemented(): Error {
-    return new Error('Mint operation workflow is not available.');
+    return operation;
   }
 }

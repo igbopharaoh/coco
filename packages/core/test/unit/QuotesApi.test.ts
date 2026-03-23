@@ -3,7 +3,6 @@ import { QuotesApi } from '../../api/QuotesApi.ts';
 import type { MeltOperationService } from '../../operations/melt/MeltOperationService.ts';
 import type { PendingCheckResult } from '../../operations/melt/MeltMethodHandler.ts';
 import type { PendingMeltOperation } from '../../operations/melt/MeltOperation.ts';
-import type { MintQuoteService } from '../../services/MintQuoteService.ts';
 import type { MeltQuoteService } from '../../services/MeltQuoteService.ts';
 
 const mintUrl = 'https://mint.test';
@@ -28,16 +27,14 @@ const makePendingOperation = (): PendingMeltOperation => ({
 });
 
 const makeMocks = (operation: PendingMeltOperation) => {
-  const mintQuoteService = {} as MintQuoteService;
   const meltQuoteService = {} as MeltQuoteService;
-
   const meltOperationService = {
     execute: mock(async () => operation),
     checkPendingOperation: mock(async () => 'finalize' as PendingCheckResult),
     getOperationByQuote: mock(async () => operation),
   } as unknown as MeltOperationService;
 
-  return { mintQuoteService, meltQuoteService, meltOperationService };
+  return { meltQuoteService, meltOperationService };
 };
 
 describe('QuotesApi', () => {
@@ -49,11 +46,7 @@ describe('QuotesApi', () => {
     pendingOperation = makePendingOperation();
     const mocks = makeMocks(pendingOperation);
     meltOperationService = mocks.meltOperationService;
-    api = new QuotesApi(
-      mocks.mintQuoteService,
-      mocks.meltQuoteService,
-      mocks.meltOperationService,
-    );
+    api = new QuotesApi(mocks.meltQuoteService, mocks.meltOperationService);
   });
 
   describe('executeMeltByQuote', () => {

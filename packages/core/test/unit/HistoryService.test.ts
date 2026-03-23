@@ -4,20 +4,42 @@ import { EventBus } from '../../events/EventBus';
 import type { CoreEvents } from '../../events/types';
 import type { HistoryRepository } from '../../repositories';
 import type { HistoryEntry, MintHistoryEntry } from '../../models/History';
-import type { MintQuoteResponse } from '@cashu/cashu-ts';
+import type { PendingMintOperation } from '../../operations/mint';
 
-describe('HistoryService - mint-quote:added', () => {
+describe('HistoryService - mint operations', () => {
   let service: HistoryService;
   let mockRepo: HistoryRepository;
   let eventBus: EventBus<CoreEvents>;
   let historyEntries: Map<string, HistoryEntry>;
   let historyUpdateEvents: Array<{ mintUrl: string; entry: HistoryEntry }>;
 
+  const makePendingOperation = (
+    quoteId: string,
+    overrides: Partial<PendingMintOperation> = {},
+  ): PendingMintOperation =>
+    ({
+      id: `mint-op-${quoteId}`,
+      state: 'pending',
+      mintUrl: 'https://mint.test',
+      method: 'bolt11',
+      methodData: {},
+      amount: 1000,
+      unit: 'sat',
+      quoteId,
+      request: `request-${quoteId}`,
+      expiry: Math.floor(Date.now() / 1000) + 3600,
+      outputData: { keep: [], send: [] },
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      lastObservedRemoteState: 'UNPAID',
+      lastObservedRemoteStateAt: Date.now(),
+      ...overrides,
+    }) as PendingMintOperation;
+
   beforeEach(() => {
     historyEntries = new Map();
     historyUpdateEvents = [];
 
-    // Mock repository
     mockRepo = {
       async addHistoryEntry(entry: Omit<HistoryEntry, 'id'>): Promise<HistoryEntry> {
         const id = Math.random().toString(36).substring(7);
@@ -48,206 +70,118 @@ describe('HistoryService - mint-quote:added', () => {
       async getReceiveHistoryEntry(): Promise<null> {
         return null;
       },
-      async updateHistoryEntryState(): Promise<void> {
-        // Not used in these tests
-      },
+      async updateHistoryEntryState(): Promise<void> {},
       async getHistoryEntryById(): Promise<null> {
-        // Not used in these tests
-        return null
+        return null;
       },
-      async updateHistoryEntry(): Promise<HistoryEntry> {
-        // Not used in these tests
-        return Array.from(historyEntries.values())[0] as MintHistoryEntry;
+      async updateHistoryEntry(entry: HistoryEntry): Promise<HistoryEntry> {
+        historyEntries.set(entry.id, entry);
+        return entry;
       },
-      async updateSendHistoryState(): Promise<void> {
-        // Not used in these tests
-      },
-      async deleteHistoryEntry(): Promise<void> {
-        // Not used in these tests
-      },
-
+      async updateSendHistoryState(): Promise<void> {},
+      async deleteHistoryEntry(): Promise<void> {},
     } as HistoryRepository;
 
-    // Create event bus
     eventBus = new EventBus<CoreEvents>();
-
-    // Track history:updated events
     eventBus.on('history:updated', (payload) => {
       historyUpdateEvents.push(payload);
     });
 
-    // Create service
     service = new HistoryService(mockRepo, eventBus);
   });
 
-  it('creates history entry for added mint quote', async () => {
-    const quote: MintQuoteResponse = {
-      quote: 'added-quote-1',
+  it('creates history entry for mint-op:pending', async () => {
+    const operation = makePendingOperation('pending-quote', {
       amount: 1000,
-      state: 'UNPAID',
       request: 'lnbc1000...',
-      unit: 'sat',
-    } as MintQuoteResponse;
-
-    await eventBus.emit('mint-quote:added', {
-      mintUrl: 'https://mint.test',
-      quoteId: 'added-quote-1',
-      quote,
+      lastObservedRemoteState: 'UNPAID',
     });
 
-    // Give async handler time to complete
+    await eventBus.emit('mint-op:pending', {
+      mintUrl: operation.mintUrl,
+      operationId: operation.id,
+      operation,
+    });
+
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    // Check history entry was created
     expect(historyEntries.size).toBe(1);
     const entry = Array.from(historyEntries.values())[0] as MintHistoryEntry;
     expect(entry.type).toBe('mint');
-    expect(entry.mintUrl).toBe('https://mint.test');
-    expect(entry.quoteId).toBe('added-quote-1');
-    expect(entry.amount).toBe(1000);
+    expect(entry.mintUrl).toBe(operation.mintUrl);
+    expect(entry.quoteId).toBe(operation.quoteId);
+    expect(entry.amount).toBe(operation.amount);
     expect(entry.state).toBe('UNPAID');
-    expect(entry.unit).toBe('sat');
-    expect(entry.paymentRequest).toBe('lnbc1000...');
-
-    // Check history:updated event was emitted
+    expect(entry.unit).toBe(operation.unit);
+    expect(entry.paymentRequest).toBe(operation.request);
     expect(historyUpdateEvents.length).toBe(1);
-    expect(historyUpdateEvents[0]?.mintUrl).toBe('https://mint.test');
-    expect(historyUpdateEvents[0]?.entry.id).toBeDefined();
   });
 
-  it('does not create duplicate history entry if already exists', async () => {
-    // Pre-create a history entry
+  it('updates existing history entry on mint-op:quote-state-changed', async () => {
+    const operation = makePendingOperation('stateful-quote', {
+      amount: 500,
+      request: 'lnbc500...',
+      lastObservedRemoteState: 'UNPAID',
+    });
+
     await mockRepo.addHistoryEntry({
       type: 'mint',
-      mintUrl: 'https://mint.test',
-      quoteId: 'existing-quote',
-      amount: 500,
+      mintUrl: operation.mintUrl,
+      quoteId: operation.quoteId,
+      amount: operation.amount,
       state: 'UNPAID',
-      unit: 'sat',
-      paymentRequest: 'lnbc500...',
-      createdAt: Date.now(),
+      unit: operation.unit,
+      paymentRequest: operation.request,
+      createdAt: operation.createdAt,
     } as Omit<MintHistoryEntry, 'id'>);
 
-    const quote: MintQuoteResponse = {
-      quote: 'existing-quote',
-      amount: 500,
-      state: 'PAID', // Different state
-      request: 'lnbc500...',
-      unit: 'sat',
-    } as MintQuoteResponse;
-
-    await eventBus.emit('mint-quote:added', {
-      mintUrl: 'https://mint.test',
-      quoteId: 'existing-quote',
-      quote,
-    });
-
-    // Give async handler time to complete
-    await new Promise((resolve) => setTimeout(resolve, 10));
-
-    // Should still only have one entry
-    expect(historyEntries.size).toBe(1);
-
-    // No new history:updated event should be emitted
-    expect(historyUpdateEvents.length).toBe(0);
-  });
-
-  it('creates history entries for PAID quotes', async () => {
-    const quote: MintQuoteResponse = {
-      quote: 'paid-quote',
-      amount: 2000,
+    await eventBus.emit('mint-op:quote-state-changed', {
+      mintUrl: operation.mintUrl,
+      operationId: operation.id,
+      operation,
+      quoteId: operation.quoteId,
       state: 'PAID',
-      request: 'lnbc2000...',
-      unit: 'sat',
-    } as MintQuoteResponse;
-
-    await eventBus.emit('mint-quote:added', {
-      mintUrl: 'https://mint.test',
-      quoteId: 'paid-quote',
-      quote,
     });
 
-    // Give async handler time to complete
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    // Check history entry was created with PAID state
-    expect(historyEntries.size).toBe(1);
     const entry = Array.from(historyEntries.values())[0] as MintHistoryEntry;
     expect(entry.state).toBe('PAID');
-    expect(entry.amount).toBe(2000);
+    expect(historyUpdateEvents.length).toBe(1);
+    expect(historyUpdateEvents[0]?.entry.type).toBe('mint');
   });
 
-  it('creates history entries for ISSUED quotes', async () => {
-    const quote: MintQuoteResponse = {
-      quote: 'issued-quote',
-      amount: 3000,
-      state: 'ISSUED',
-      request: 'lnbc3000...',
-      unit: 'sat',
-    } as MintQuoteResponse;
-
-    await eventBus.emit('mint-quote:added', {
-      mintUrl: 'https://mint.test',
-      quoteId: 'issued-quote',
-      quote,
+  it('updates an existing history entry instead of creating a duplicate pending entry', async () => {
+    const operation = makePendingOperation('existing-quote', {
+      amount: 750,
+      request: 'lnbc750...',
+      lastObservedRemoteState: 'PAID',
     });
 
-    // Give async handler time to complete
+    await mockRepo.addHistoryEntry({
+      type: 'mint',
+      mintUrl: operation.mintUrl,
+      quoteId: operation.quoteId,
+      amount: 10,
+      state: 'UNPAID',
+      unit: operation.unit,
+      paymentRequest: 'old-request',
+      createdAt: operation.createdAt,
+    } as Omit<MintHistoryEntry, 'id'>);
+
+    await eventBus.emit('mint-op:pending', {
+      mintUrl: operation.mintUrl,
+      operationId: operation.id,
+      operation,
+    });
+
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    // Check history entry was created with ISSUED state
     expect(historyEntries.size).toBe(1);
     const entry = Array.from(historyEntries.values())[0] as MintHistoryEntry;
-    expect(entry.state).toBe('ISSUED');
-    expect(entry.amount).toBe(3000);
-  });
-
-  it('handles multiple mints correctly', async () => {
-    const quote1: MintQuoteResponse = {
-      quote: 'mint1-quote',
-      amount: 100,
-      state: 'PAID',
-      request: 'lnbc100...',
-      unit: 'sat',
-    } as MintQuoteResponse;
-
-    const quote2: MintQuoteResponse = {
-      quote: 'mint2-quote',
-      amount: 200,
-      state: 'UNPAID',
-      request: 'lnbc200...',
-      unit: 'sat',
-    } as MintQuoteResponse;
-
-    await eventBus.emit('mint-quote:added', {
-      mintUrl: 'https://mint1.test',
-      quoteId: 'mint1-quote',
-      quote: quote1,
-    });
-
-    await eventBus.emit('mint-quote:added', {
-      mintUrl: 'https://mint2.test',
-      quoteId: 'mint2-quote',
-      quote: quote2,
-    });
-
-    // Give async handlers time to complete
-    await new Promise((resolve) => setTimeout(resolve, 10));
-
-    // Should have two entries
-    expect(historyEntries.size).toBe(2);
-
-    // Check both entries have correct mint URLs
-    const entries = Array.from(historyEntries.values()) as MintHistoryEntry[];
-    const mint1Entry = entries.find((e) => e.quoteId === 'mint1-quote');
-    const mint2Entry = entries.find((e) => e.quoteId === 'mint2-quote');
-
-    expect(mint1Entry?.mintUrl).toBe('https://mint1.test');
-    expect(mint1Entry?.amount).toBe(100);
-    expect(mint2Entry?.mintUrl).toBe('https://mint2.test');
-    expect(mint2Entry?.amount).toBe(200);
-
-    // Should have emitted two history:updated events
-    expect(historyUpdateEvents.length).toBe(2);
+    expect(entry.amount).toBe(operation.amount);
+    expect(entry.paymentRequest).toBe(operation.request);
+    expect(entry.state).toBe('PAID');
+    expect(historyUpdateEvents.length).toBe(1);
   });
 });

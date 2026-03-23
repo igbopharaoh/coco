@@ -1,3 +1,3 @@
-export * from './MintQuoteWatcherService';
-export * from './MintQuoteProcessor';
+export * from './MintOperationWatcherService';
+export * from './MintOperationProcessor';
 export * from './ProofStateWatcherService';

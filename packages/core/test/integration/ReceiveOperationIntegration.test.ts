@@ -27,11 +27,11 @@ describe('ReceiveOperationService integration', () => {
     const baseConfig = {
       logger: new NullLogger(),
       watchers: {
-        mintQuoteWatcher: { disabled: true },
+        mintOperationWatcher: { disabled: true },
         proofStateWatcher: { disabled: true },
       },
       processors: {
-        mintQuoteProcessor: { disabled: true },
+        mintOperationProcessor: { disabled: true },
       },
     };
 
@@ -63,8 +63,13 @@ describe('ReceiveOperationService integration', () => {
     await sender.mint.addMint(mintUrl, { trusted: true });
     await receiver.mint.addMint(mintUrl, { trusted: true });
 
-    const quote = await sender.quotes.createMintQuote(mintUrl, 50);
-    await sender.quotes.redeemMintQuote(mintUrl, quote.quote);
+    const pendingMint = await sender.ops.mint.prepare({
+      mintUrl,
+      amount: 50,
+      method: 'bolt11',
+      methodData: {},
+    });
+    await sender.ops.mint.execute(pendingMint.id);
 
     const preparedSend = await sender.ops.send.prepare({ mintUrl, amount: 30 });
     const { token } = await sender.ops.send.execute(preparedSend.id);

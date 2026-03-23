@@ -74,11 +74,11 @@ describe('Auth Login (automated — password grant)', () => {
       repo: repositories,
       seedGetter: async () => new Uint8Array(32),
       watchers: {
-        mintQuoteWatcher: { disabled: true },
+        mintOperationWatcher: { disabled: true },
         proofStateWatcher: { disabled: true },
       },
       processors: {
-        mintQuoteProcessor: { disabled: true },
+        mintOperationProcessor: { disabled: true },
       },
     });
   });
@@ -101,11 +101,11 @@ describe('Auth Login (automated — password grant)', () => {
       repo: repositories,
       seedGetter: async () => new Uint8Array(32),
       watchers: {
-        mintQuoteWatcher: { disabled: true },
+        mintOperationWatcher: { disabled: true },
         proofStateWatcher: { disabled: true },
       },
       processors: {
-        mintQuoteProcessor: { disabled: true },
+        mintOperationProcessor: { disabled: true },
       },
     });
 

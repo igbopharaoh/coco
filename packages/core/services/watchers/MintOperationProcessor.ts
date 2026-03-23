@@ -1,43 +1,37 @@
 import type { EventBus, CoreEvents } from '@core/events';
 import type { Logger } from '../../logging/Logger.ts';
-import type { MintQuoteService } from '../MintQuoteService';
-import type { MintQuoteState } from '@cashu/cashu-ts';
+import type { MintOperationService } from '@core/operations/mint';
 import { MintOperationError, NetworkError } from '../../models/Error';
 
 interface QueueItem {
   mintUrl: string;
-  quoteId: string;
-  quoteType: string;
+  operationId: string;
+  method: string;
   retryCount: number;
   nextRetryAt: number;
 }
 
-interface QuoteHandler {
-  canHandle(quoteType: string): boolean;
-  process(mintUrl: string, quoteId: string): Promise<void>;
+interface OperationHandler {
+  process(mintUrl: string, operationId: string): Promise<void>;
 }
 
-class Bolt11QuoteHandler implements QuoteHandler {
-  constructor(private quotes: MintQuoteService, private logger?: Logger) {}
+class Bolt11MintOperationHandler implements OperationHandler {
+  constructor(private mintOperations: MintOperationService, private logger?: Logger) {}
 
-  canHandle(quoteType: string): boolean {
-    return quoteType === 'bolt11';
-  }
-
-  async process(mintUrl: string, quoteId: string): Promise<void> {
-    await this.quotes.redeemMintQuote(mintUrl, quoteId);
+  async process(_mintUrl: string, operationId: string): Promise<void> {
+    await this.mintOperations.finalize(operationId);
   }
 }
 
-export interface MintQuoteProcessorOptions {
+export interface MintOperationProcessorOptions {
   processIntervalMs?: number;
   maxRetries?: number;
   baseRetryDelayMs?: number;
   initialEnqueueDelayMs?: number;
 }
 
-export class MintQuoteProcessor {
-  private readonly quotes: MintQuoteService;
+export class MintOperationProcessor {
+  private readonly mintOperations: MintOperationService;
   private readonly bus: EventBus<CoreEvents>;
   private readonly logger?: Logger;
 
@@ -46,23 +40,23 @@ export class MintQuoteProcessor {
   private processing = false;
   private processingTimer?: ReturnType<typeof setTimeout>;
   private offStateChanged?: () => void;
-  private offQuoteAdded?: () => void;
+  private offPending?: () => void;
   private offRequeue?: () => void;
   private offUntrusted?: () => void;
 
-  private handlers = new Map<string, QuoteHandler>();
+  private handlers = new Map<string, OperationHandler>();
   private readonly processIntervalMs: number;
   private readonly maxRetries: number;
   private readonly baseRetryDelayMs: number;
   private readonly initialEnqueueDelayMs: number;
 
   constructor(
-    quotes: MintQuoteService,
+    mintOperations: MintOperationService,
     bus: EventBus<CoreEvents>,
     logger?: Logger,
-    options?: MintQuoteProcessorOptions,
+    options?: MintOperationProcessorOptions,
   ) {
-    this.quotes = quotes;
+    this.mintOperations = mintOperations;
     this.bus = bus;
     this.logger = logger;
 
@@ -72,13 +66,13 @@ export class MintQuoteProcessor {
     this.baseRetryDelayMs = options?.baseRetryDelayMs ?? 5000;
     this.initialEnqueueDelayMs = options?.initialEnqueueDelayMs ?? 500;
 
-    // Register default handler for bolt11 quotes
-    this.registerHandler('bolt11', new Bolt11QuoteHandler(quotes, logger));
+    // Register default handler for bolt11 mint operations
+    this.registerHandler('bolt11', new Bolt11MintOperationHandler(mintOperations, logger));
   }
 
-  registerHandler(quoteType: string, handler: QuoteHandler): void {
-    this.handlers.set(quoteType, handler);
-    this.logger?.debug('Registered quote handler', { quoteType });
+  registerHandler(method: string, handler: OperationHandler): void {
+    this.handlers.set(method, handler);
+    this.logger?.debug('Registered mint operation handler', { method });
   }
 
   isRunning(): boolean {
@@ -88,29 +82,28 @@ export class MintQuoteProcessor {
   async start(): Promise<void> {
     if (this.running) return;
     this.running = true;
-    this.logger?.info('MintQuoteProcessor started');
+    this.logger?.info('MintOperationProcessor started');
 
-    // Subscribe to state changes
+    // Subscribe to operation-owned quote-state changes
     this.offStateChanged = this.bus.on(
-      'mint-quote:state-changed',
-      async ({ mintUrl, quoteId, state }) => {
+      'mint-op:quote-state-changed',
+      async ({ mintUrl, operationId, operation, state }) => {
         if (state === 'PAID') {
-          this.enqueue(mintUrl, quoteId, 'bolt11'); // Default to bolt11 for now
+          this.enqueue(mintUrl, operationId, operation.method);
         }
       },
     );
 
-    // Subscribe to manually added quotes
-    this.offQuoteAdded = this.bus.on('mint-quote:added', async ({ mintUrl, quoteId, quote }) => {
-      if (quote.state === 'PAID') {
-        // Use provided quoteType or default to bolt11
-        this.enqueue(mintUrl, quoteId, 'bolt11');
+    // Subscribe to pending operations so imported PAID operations enqueue immediately
+    this.offPending = this.bus.on('mint-op:pending', async ({ mintUrl, operation }) => {
+      if (operation.state === 'pending' && operation.lastObservedRemoteState === 'PAID') {
+        this.enqueue(mintUrl, operation.id, operation.method);
       }
     });
 
-    // Subscribe to explicit requeue events (enqueue regardless of stored state)
-    this.offRequeue = this.bus.on('mint-quote:requeue', async ({ mintUrl, quoteId }) => {
-      this.enqueue(mintUrl, quoteId, 'bolt11');
+    // Subscribe to explicit operation requeue events.
+    this.offRequeue = this.bus.on('mint-op:requeue', ({ mintUrl, operationId, operation }) => {
+      this.enqueue(mintUrl, operationId, operation.method);
     });
 
     // Clear queue items when mint is untrusted
@@ -137,13 +130,13 @@ export class MintQuoteProcessor {
       }
     }
 
-    if (this.offQuoteAdded) {
+    if (this.offPending) {
       try {
-        this.offQuoteAdded();
+        this.offPending();
       } catch {
         // ignore
       } finally {
-        this.offQuoteAdded = undefined;
+        this.offPending = undefined;
       }
     }
 
@@ -178,12 +171,12 @@ export class MintQuoteProcessor {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
 
-    this.logger?.info('MintQuoteProcessor stopped', { pendingItems: this.queue.length });
+    this.logger?.info('MintOperationProcessor stopped', { pendingItems: this.queue.length });
   }
 
   /**
    * Wait for the queue to be empty and all processing to complete.
-   * Useful for CLI applications that want to ensure all quotes are processed before exiting.
+   * Useful for CLI applications that want to ensure all queued operations are processed before exiting.
    */
   async waitForCompletion(): Promise<void> {
     while (this.queue.length > 0 || this.processing) {
@@ -193,28 +186,28 @@ export class MintQuoteProcessor {
 
   /**
    * Remove all queued items for a specific mint.
-   * Called when a mint is untrusted to stop processing its quotes.
+   * Called when a mint is untrusted to stop processing its operations.
    */
   clearMintFromQueue(mintUrl: string): void {
     const before = this.queue.length;
     this.queue = this.queue.filter((item) => item.mintUrl !== mintUrl);
     const removed = before - this.queue.length;
     if (removed > 0) {
-      this.logger?.info('Cleared mint quotes from processor queue', { mintUrl, removed });
+      this.logger?.info('Cleared mint operations from processor queue', { mintUrl, removed });
     }
   }
 
-  // TODO: Improve deduplication by tracking an "active" set keyed by `${mintUrl}::${quoteId}`
+  // TODO: Improve deduplication by tracking an "active" set keyed by `${mintUrl}::${operationId}`
   // to prevent re-enqueueing while an item is currently being processed. Today we only
   // deduplicate within the queue, so an item can be enqueued again if a new event arrives
   // during in-flight processing.
-  private enqueue(mintUrl: string, quoteId: string, quoteType: string): void {
+  private enqueue(mintUrl: string, operationId: string, method: string): void {
     // Check if already in queue
     const existing = this.queue.find(
-      (item) => item.mintUrl === mintUrl && item.quoteId === quoteId,
+      (item) => item.mintUrl === mintUrl && item.operationId === operationId,
     );
     if (existing) {
-      this.logger?.debug('Quote already in queue', { mintUrl, quoteId });
+      this.logger?.debug('Mint operation already in queue', { mintUrl, operationId });
       return;
     }
 
@@ -222,16 +215,16 @@ export class MintQuoteProcessor {
 
     this.queue.push({
       mintUrl,
-      quoteId,
-      quoteType,
+      operationId,
+      method,
       retryCount: 0,
       nextRetryAt: 0,
     });
 
-    this.logger?.debug('Quote enqueued for processing', {
+    this.logger?.debug('Mint operation enqueued for processing', {
       mintUrl,
-      quoteId,
-      quoteType,
+      operationId,
+      method,
       queueLength: this.queue.length,
     });
 
@@ -301,97 +294,78 @@ export class MintQuoteProcessor {
   }
 
   private async processItem(item: QueueItem): Promise<void> {
-    const { mintUrl, quoteId, quoteType } = item;
+    const { mintUrl, operationId, method } = item;
 
-    const handler = this.handlers.get(quoteType);
+    const handler = this.handlers.get(method);
     if (!handler) {
-      this.logger?.warn('No handler registered for quote type', { quoteType, mintUrl, quoteId });
+      this.logger?.warn('No handler registered for mint method', {
+        method,
+        mintUrl,
+        operationId,
+      });
       return;
     }
 
-    this.logger?.info('Processing mint quote', {
+    this.logger?.info('Processing mint operation', {
       mintUrl,
-      quoteId,
-      quoteType,
+      operationId,
+      method,
       attempt: item.retryCount + 1,
     });
 
-    try {
-      await handler.process(mintUrl, quoteId);
-      this.logger?.info('Successfully processed mint quote', { mintUrl, quoteId, quoteType });
-    } catch (err) {
-      throw err; // Let the outer catch handle it
-    }
+    await handler.process(mintUrl, operationId);
+    this.logger?.info('Successfully processed mint operation', { mintUrl, operationId, method });
   }
 
   private handleProcessingError(item: QueueItem, err: unknown): void {
-    const { mintUrl, quoteId } = item;
+    const { mintUrl, operationId } = item;
 
-    // Handle specific mint operation errors
     if (err instanceof MintOperationError) {
       if (err.code === 20007) {
-        // Quote expired - we can't set it to EXPIRED as that's not a valid state
-        // Just log and move on, the quote will remain in its current state
-        this.logger?.warn('Mint quote expired', { mintUrl, quoteId });
-        return;
-      } else if (err.code === 20002) {
-        // Quote already issued
-        this.logger?.info('Mint quote already issued, updating state', { mintUrl, quoteId });
-        this.updateQuoteState(mintUrl, quoteId, 'ISSUED');
+        this.logger?.warn('Mint operation quote expired', { mintUrl, operationId });
         return;
       }
-      // Other mint errors - don't retry
+
+      if (err.code === 20002) {
+        this.logger?.info('Mint operation quote already issued', { mintUrl, operationId });
+        return;
+      }
+
       this.logger?.error('Mint operation error, not retrying', {
         mintUrl,
-        quoteId,
+        operationId,
         code: err.code,
         detail: err.message,
       });
       return;
     }
 
-    // Handle network errors with retry
     if (err instanceof NetworkError || (err instanceof Error && err.message.includes('network'))) {
       item.retryCount++;
       if (item.retryCount <= this.maxRetries) {
-        // Calculate exponential backoff
         const delay = this.baseRetryDelayMs * Math.pow(2, item.retryCount - 1);
         item.nextRetryAt = Date.now() + delay;
 
         this.logger?.warn('Network error, will retry', {
           mintUrl,
-          quoteId,
+          operationId,
           attempt: item.retryCount,
           maxRetries: this.maxRetries,
           retryInMs: delay,
         });
 
-        // Re-add to queue for retry
         this.queue.push(item);
         return;
       }
 
       this.logger?.error('Max retries exceeded for network error', {
         mintUrl,
-        quoteId,
+        operationId,
         maxRetries: this.maxRetries,
       });
       return;
     }
 
-    // Unknown error - log and don't retry
-    this.logger?.error('Failed to process mint quote', { mintUrl, quoteId, err });
-  }
-
-  private async updateQuoteState(
-    mintUrl: string,
-    quoteId: string,
-    state: MintQuoteState,
-  ): Promise<void> {
-    try {
-      await this.quotes.updateStateFromRemote(mintUrl, quoteId, state);
-    } catch (err) {
-      this.logger?.error('Failed to update quote state', { mintUrl, quoteId, state, err });
-    }
+    this.logger?.error('Failed to process mint operation', { mintUrl, operationId, err });
   }
 }
