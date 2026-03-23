@@ -1,5 +1,29 @@
 # coco-cashu-expo-sqlite
 
+## 1.1.2-rc.49
+
+### Patch Changes
+
+- 5447e2c: Persist bolt11 melt `payment_preimage` data on finalized operations via method-specific
+  `finalizedData`, store it across all melt operation repositories, and update adapter tests to
+  require preimage propagation only when the mint actually returns one.
+- 8a2d720: Finish the mint quote removal migration and make mint operations the runtime source of truth.
+
+  - Replace legacy `mint-quote:*` runtime events with operation-based mint events.
+  - Rename watcher and processor config and manager methods to the operation-based surface:
+    `mintOperationWatcher`, `mintOperationProcessor`, `enableMintOperationWatcher()`,
+    `enableMintOperationProcessor()`, and related disable/wait helpers.
+  - Remove the legacy `MintQuoteService` runtime path and keep `MintQuoteRepository` only for
+    cold-start reconciliation of old persisted quote rows.
+  - Move mint watcher, processor, history, and recovery flows onto `manager.ops.mint`.
+
+  This is a breaking change for consumers using the old mint watcher/processor config keys,
+  manager methods, or `mint-quote:*` events.
+
+- Updated dependencies [5447e2c]
+- Updated dependencies [8a2d720]
+  - coco-cashu-core@1.1.2-rc.49
+
 ## 1.1.2-rc.48
 
 ### Patch Changes
