@@ -2,6 +2,8 @@ name: core-integration-tests
 
 on:
   push:
+    branches:
+      - master
     paths:
       - "packages/core/**"
       - "packages/adapter-tests/**"
