@@ -2,18 +2,53 @@ import type { Logger } from '@core/logging';
 import { PaymentRequest, PaymentRequestTransportType, type Token } from '@cashu/cashu-ts';
 import { PaymentRequestError } from '../models/Error';
 import type { ProofService } from '../services';
-import type { PreparedSendOperation, SendOperationService } from '../operations/send';
+import type {
+  PendingSendOperation,
+  PreparedSendOperation,
+  SendOperationService,
+} from '../operations/send';
 
-type InbandTransport = { type: 'inband' };
-type HttpTransport = { type: 'http'; url: string };
-type Transport = InbandTransport | HttpTransport;
+type InbandPaymentRequestTransport = { type: 'inband' };
+type HttpPaymentRequestTransport = { type: 'http'; url: string };
+type PaymentRequestTransport = InbandPaymentRequestTransport | HttpPaymentRequestTransport;
+
+type ResolvedPaymentRequest = {
+  paymentRequest: PaymentRequest;
+  payableMints: string[];
+  allowedMints: string[];
+  amount?: number;
+  transport: PaymentRequestTransport;
+};
+
+export type PreparedPaymentRequest = {
+  sendOperation: PreparedSendOperation;
+  request: ResolvedPaymentRequest;
+};
+
+export type InbandPaymentRequestExecutionResult = {
+  type: 'inband';
+  token: Token;
+  operation: PendingSendOperation;
+  request: ResolvedPaymentRequest;
+};
+
+export type HttpPaymentRequestExecutionResult = {
+  type: 'http';
+  response: Response;
+  operation: PendingSendOperation;
+  request: ResolvedPaymentRequest;
+};
+
+export type PaymentRequestExecutionResult =
+  | InbandPaymentRequestExecutionResult
+  | HttpPaymentRequestExecutionResult;
 
 type ParsedPaymentRequest = {
   paymentRequest: PaymentRequest;
   matchingMints: string[];
   requiredMints: string[];
   amount?: number;
-  transport: Transport;
+  transport: PaymentRequestTransport;
 };
 
 export type PaymentRequestTransaction = {
@@ -21,7 +56,20 @@ export type PaymentRequestTransaction = {
   request: ParsedPaymentRequest;
 };
 
-export type { ParsedPaymentRequest, InbandTransport, HttpTransport, Transport };
+type InbandTransport = InbandPaymentRequestTransport;
+type HttpTransport = HttpPaymentRequestTransport;
+type Transport = PaymentRequestTransport;
+
+export type {
+  ResolvedPaymentRequest,
+  ParsedPaymentRequest,
+  InbandPaymentRequestTransport,
+  HttpPaymentRequestTransport,
+  PaymentRequestTransport,
+  InbandTransport,
+  HttpTransport,
+  Transport,
+};
 
 export class PaymentRequestService {
   private readonly sendOperationService: SendOperationService;
@@ -39,100 +87,155 @@ export class PaymentRequestService {
   }
 
   /**
-   * Process a payment request and return a parsed payment request.
+   * Parse and validate a payment request.
    * @param paymentRequest - The payment request to process
-   * @returns The parsed payment request
+   * @returns The resolved payment request
    */
-  async processPaymentRequest(paymentRequest: string): Promise<ParsedPaymentRequest> {
+  async parse(paymentRequest: string): Promise<ResolvedPaymentRequest> {
     const decodedPaymentRequest = await this.readPaymentRequest(paymentRequest);
     const transport = this.getPaymentRequestTransport(decodedPaymentRequest);
-    const matchingMints = await this.findMatchingMints(decodedPaymentRequest);
-    const requiredMints = decodedPaymentRequest.mints ?? [];
+    const payableMints = await this.findMatchingMints(decodedPaymentRequest);
+    const allowedMints = decodedPaymentRequest.mints ?? [];
     return {
       paymentRequest: decodedPaymentRequest,
-      matchingMints,
-      requiredMints,
+      payableMints,
+      allowedMints,
       amount: decodedPaymentRequest.amount,
       transport,
     };
   }
 
   /**
-   * Handle an inband payment request by sending tokens and calling the handler.
-   * @param mintUrl - The mint to send from
-   * @param request - The prepared payment request
-   * @param inbandHandler - Callback to deliver the token
-   * @param amount - Optional amount (required if not specified in request)
+   * Prepare a payment request for execution.
    */
-  async preparePaymentRequestTransaction(
-    mintUrl: string,
-    request: ParsedPaymentRequest,
-    amount?: number,
-  ): Promise<PaymentRequestTransaction> {
-    this.validateMint(mintUrl, request.requiredMints);
+  async prepare(
+    request: ResolvedPaymentRequest,
+    options: { mintUrl: string; amount?: number },
+  ): Promise<PreparedPaymentRequest> {
+    const { mintUrl, amount } = options;
+    this.validateMint(mintUrl, request.allowedMints);
     const finalAmount = this.validateAmount(request, amount);
+    const preparedRequest = await this.resolvePreparedRequest(request, finalAmount);
     this.logger?.debug('Preparing payment request transaction', { mintUrl, amount: finalAmount });
     const initSend = await this.sendOperationService.init(mintUrl, finalAmount);
     const preparedSend = await this.sendOperationService.prepare(initSend);
     this.logger?.debug('Payment request transaction prepared', { mintUrl, amount: finalAmount });
-    return { sendOperation: preparedSend, request };
+    return { sendOperation: preparedSend, request: preparedRequest };
   }
 
   /**
-   * Handle an HTTP payment request by sending tokens to the specified URL.
-   * @param mintUrl - The mint to send from
-   * @param request - The prepared payment request
-   * @param amount - Optional amount (required if not specified in request)
-   * @returns The HTTP response from the payment endpoint
+   * Execute a prepared payment request.
+   */
+  async execute(transaction: PreparedPaymentRequest): Promise<PaymentRequestExecutionResult> {
+    switch (transaction.request.transport.type) {
+      case 'inband': {
+        this.logger?.debug('Creating inband payment request token', {
+          mintUrl: transaction.sendOperation.mintUrl,
+          amount: transaction.request.amount,
+        });
+        const { operation, token } = await this.sendOperationService.execute(
+          transaction.sendOperation,
+        );
+        return {
+          type: 'inband',
+          token,
+          operation,
+          request: transaction.request,
+        };
+      }
+      case 'http': {
+        this.logger?.debug('Handling HTTP payment request', {
+          mintUrl: transaction.sendOperation.mintUrl,
+          amount: transaction.request.amount,
+          url: transaction.request.transport.url,
+        });
+        const { operation, token } = await this.sendOperationService.execute(
+          transaction.sendOperation,
+        );
+        const response = await fetch(transaction.request.transport.url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(token),
+        });
+        this.logger?.debug('HTTP payment request completed', {
+          mintUrl: transaction.sendOperation.mintUrl,
+          amount: transaction.request.amount,
+          url: transaction.request.transport.url,
+          status: response.status,
+        });
+        return {
+          type: 'http',
+          response,
+          operation,
+          request: transaction.request,
+        };
+      }
+    }
+  }
+
+  /**
+   * Parse and validate a payment request.
+   * @deprecated Use `parse()` instead.
+   */
+  async processPaymentRequest(paymentRequest: string): Promise<ParsedPaymentRequest> {
+    return this.toParsedPaymentRequest(await this.parse(paymentRequest));
+  }
+
+  /**
+   * Prepare a payment request transaction.
+   * @deprecated Use `prepare()` instead.
+   */
+  async preparePaymentRequestTransaction(
+    mintUrl: string,
+    request: ParsedPaymentRequest | ResolvedPaymentRequest,
+    amount?: number,
+  ): Promise<PaymentRequestTransaction> {
+    const prepared = await this.prepare(this.toResolvedPaymentRequest(request), {
+      mintUrl,
+      amount,
+    });
+    return this.toPaymentRequestTransaction(prepared);
+  }
+
+  /**
+   * Execute an inband payment request.
+   * @deprecated Use `execute()` instead.
    */
   async handleInbandPaymentRequest(
-    transaction: PaymentRequestTransaction,
+    transaction: PaymentRequestTransaction | PreparedPaymentRequest,
     inbandHandler: (token: Token) => Promise<void>,
   ): Promise<void> {
-    if (transaction.request.transport.type !== 'inband') {
+    const prepared = this.toPreparedPaymentRequest(transaction);
+    if (prepared.request.transport.type !== 'inband') {
       throw new PaymentRequestError('Invalid transport type');
     }
-    this.logger?.debug('Creating inband payment request token', {
-      mintUrl: transaction.sendOperation.mintUrl,
-      amount: transaction.request.amount,
-    });
-    const token = await this.sendOperationService.execute(transaction.sendOperation);
+    const result = await this.execute(prepared);
+    if (result.type !== 'inband') {
+      throw new PaymentRequestError('Invalid transport type');
+    }
     this.logger?.debug('Executing inband payment request handler', {
-      mintUrl: transaction.sendOperation.mintUrl,
-      amount: transaction.request.amount,
+      mintUrl: result.operation.mintUrl,
+      amount: result.request.amount,
     });
-    await inbandHandler(token.token);
+    await inbandHandler(result.token);
   }
 
   /**
-   * Handle an HTTP payment request by sending tokens to the specified URL.
-   * @param mintUrl - The mint to send from
-   * @param request - The prepared payment request
-   * @param amount - Optional amount (required if not specified in request)
-   * @returns The HTTP response from the payment endpoint
+   * Execute an HTTP payment request.
+   * @deprecated Use `execute()` instead.
    */
-  async handleHttpPaymentRequest(transaction: PaymentRequestTransaction): Promise<Response> {
-    if (transaction.request.transport.type !== 'http') {
+  async handleHttpPaymentRequest(
+    transaction: PaymentRequestTransaction | PreparedPaymentRequest,
+  ): Promise<Response> {
+    const prepared = this.toPreparedPaymentRequest(transaction);
+    if (prepared.request.transport.type !== 'http') {
       throw new PaymentRequestError('Invalid transport type');
     }
-    this.logger?.debug('Handling HTTP payment request', {
-      mintUrl: transaction.sendOperation.mintUrl,
-      amount: transaction.request.amount,
-      url: transaction.request.transport.url,
-    });
-    const token = await this.sendOperationService.execute(transaction.sendOperation);
-    const response = await fetch(transaction.request.transport.url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(token),
-    });
-    this.logger?.debug('HTTP payment request completed', {
-      mintUrl: transaction.sendOperation.mintUrl,
-      amount: transaction.request.amount,
-      url: transaction.request.transport.url,
-      status: response.status,
-    });
-    return response;
+    const result = await this.execute(prepared);
+    if (result.type !== 'http') {
+      throw new PaymentRequestError('Invalid transport type');
+    }
+    return result.response;
   }
 
   private async readPaymentRequest(paymentRequest: string): Promise<PaymentRequest> {
@@ -152,7 +255,7 @@ export class PaymentRequestService {
     }
   }
 
-  private getPaymentRequestTransport(pr: PaymentRequest): Transport {
+  private getPaymentRequestTransport(pr: PaymentRequest): PaymentRequestTransport {
     if (!pr.transport || (Array.isArray(pr.transport) && pr.transport.length === 0)) {
       return { type: 'inband' };
     }
@@ -182,7 +285,7 @@ export class PaymentRequestService {
     return matchingMints;
   }
 
-  private validateAmount(request: ParsedPaymentRequest, amount?: number): number {
+  private validateAmount(request: ResolvedPaymentRequest, amount?: number): number {
     if (request.amount && amount && request.amount !== amount) {
       throw new PaymentRequestError(
         `Amount mismatch: request specifies ${request.amount} but ${amount} was provided`,
@@ -193,5 +296,77 @@ export class PaymentRequestService {
       throw new PaymentRequestError('Amount is required but was not provided');
     }
     return finalAmount;
+  }
+
+  private async resolvePreparedRequest(
+    request: ResolvedPaymentRequest,
+    amount: number,
+  ): Promise<ResolvedPaymentRequest> {
+    if (request.amount === amount) {
+      return request;
+    }
+
+    const paymentRequest = new PaymentRequest(
+      request.paymentRequest.transport,
+      request.paymentRequest.id,
+      amount,
+      request.paymentRequest.unit,
+      request.paymentRequest.mints,
+      request.paymentRequest.description,
+      request.paymentRequest.singleUse,
+      request.paymentRequest.nut10,
+    );
+    const payableMints = await this.findMatchingMints(paymentRequest);
+
+    return {
+      ...request,
+      amount,
+      payableMints,
+      paymentRequest,
+    };
+  }
+
+  private toResolvedPaymentRequest(
+    request: ParsedPaymentRequest | ResolvedPaymentRequest,
+  ): ResolvedPaymentRequest {
+    if ('payableMints' in request && 'allowedMints' in request) {
+      return request;
+    }
+
+    return {
+      paymentRequest: request.paymentRequest,
+      payableMints: request.matchingMints,
+      allowedMints: request.requiredMints,
+      amount: request.amount,
+      transport: request.transport,
+    };
+  }
+
+  private toParsedPaymentRequest(request: ResolvedPaymentRequest): ParsedPaymentRequest {
+    return {
+      paymentRequest: request.paymentRequest,
+      matchingMints: request.payableMints,
+      requiredMints: request.allowedMints,
+      amount: request.amount,
+      transport: request.transport,
+    };
+  }
+
+  private toPreparedPaymentRequest(
+    transaction: PaymentRequestTransaction | PreparedPaymentRequest,
+  ): PreparedPaymentRequest {
+    return {
+      sendOperation: transaction.sendOperation,
+      request: this.toResolvedPaymentRequest(transaction.request),
+    };
+  }
+
+  private toPaymentRequestTransaction(
+    transaction: PreparedPaymentRequest,
+  ): PaymentRequestTransaction {
+    return {
+      sendOperation: transaction.sendOperation,
+      request: this.toParsedPaymentRequest(transaction.request),
+    };
   }
 }
