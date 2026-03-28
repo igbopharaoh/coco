@@ -1,5 +1,12 @@
 # coco-cashu-core
 
+## 1.1.2-rc.50
+
+### Patch Changes
+
+- defce3d: fix(core): handle expired quote (20007) in melt executing recovery to prevent permanent proof locking
+- 41d6640: Add binary encoding option for token and PaymentRequest
+
 ## 1.1.2-rc.49
 
 ### Patch Changes

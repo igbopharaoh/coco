@@ -1,5 +1,13 @@
 # coco-cashu-expo-sqlite
 
+## 1.1.2-rc.50
+
+### Patch Changes
+
+- Updated dependencies [defce3d]
+- Updated dependencies [41d6640]
+  - coco-cashu-core@1.1.2-rc.50
+
 ## 1.1.2-rc.49
 
 ### Patch Changes

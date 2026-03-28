@@ -1,6 +1,6 @@
 {
   "name": "coco-cashu-sqlite-bun",
-  "version": "1.1.2-rc.49",
+  "version": "1.1.2-rc.50",
   "module": "index.ts",
   "type": "module",
   "repository": {
@@ -13,7 +13,7 @@
     "README.md"
   ],
   "devDependencies": {
-    "coco-cashu-adapter-tests": "1.1.2-rc.49"
+    "coco-cashu-adapter-tests": "1.1.2-rc.50"
   },
   "exports": {
     ".": {
@@ -29,7 +29,7 @@
     "test": "bun test"
   },
   "peerDependencies": {
-    "coco-cashu-core": "1.1.2-rc.49",
+    "coco-cashu-core": "1.1.2-rc.50",
     "typescript": "^5"
   }
 }
