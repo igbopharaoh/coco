@@ -1,0 +1,6 @@
+dist
+coverage
+node_modules
+**/.vitepress/cache
+**/.vitepress/dist
+**/CHANGELOG.md
