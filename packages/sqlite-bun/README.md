@@ -1,25 +1,33 @@
-# coco-cashu-sqlite-bun
+# @cashu/coco-sqlite-bun
 
-SQLite adapter for coco-cashu using Bun's built-in `bun:sqlite` module.
+> ⚠️ Alpha software: This library is under active development and APIs may change. Use with caution in production and pin versions.
+
+SQLite adapter for Coco using Bun's built-in `bun:sqlite` module.
 
 ## Installation
 
 ```bash
-npm install coco-cashu-sqlite-bun
+bun add @cashu/coco-core @cashu/coco-sqlite-bun
 ```
 
 ## Usage
 
 ```typescript
-import { SqliteRepositories } from 'coco-cashu-sqlite-bun';
+import { initializeCoco } from '@cashu/coco-core';
+import { SqliteRepositories } from '@cashu/coco-sqlite-bun';
 import { Database } from 'bun:sqlite';
 
 const database = new Database(':memory:');
 const repositories = new SqliteRepositories({ database });
 await repositories.init();
+
+const manager = await initializeCoco({
+  repo: repositories,
+  seedGetter,
+});
 ```
 
-## Differences from coco-cashu-sqlite3
+## Differences from @cashu/coco-sqlite
 
 - Uses `bun:sqlite` instead of `better-sqlite3`
 - Designed specifically for Bun runtime
