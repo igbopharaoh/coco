@@ -260,58 +260,11 @@ export class ProofService {
   }
 
   /**
-   * Gets the balance for a single mint by summing ready proof amounts.
-   * @param mintUrl - The URL of the mint
-   * @returns The total balance for the mint
-   */
-  async getBalance(mintUrl: string): Promise<number> {
-    if (!mintUrl || mintUrl.trim().length === 0) {
-      throw new ProofValidationError('mintUrl is required');
-    }
-    const proofs = await this.proofRepository.getAvailableProofs(mintUrl);
-    return proofs.reduce((acc, proof) => acc + proof.amount, 0);
-  }
-
-  /**
-   * Gets balances for all mints by summing ready proof amounts.
-   * @returns An object mapping mint URLs to their balances
-   */
-  async getBalances(): Promise<{ [mintUrl: string]: number }> {
-    const proofs = await this.getAllReadyProofs();
-    const balances: { [mintUrl: string]: number } = {};
-    for (const proof of proofs) {
-      if (proof.usedByOperationId) continue;
-      const mintUrl = proof.mintUrl;
-      const balance = balances[mintUrl] || 0;
-      balances[mintUrl] = balance + proof.amount;
-    }
-    return balances;
-  }
-
-  /**
-   * Gets balances for trusted mints only by summing ready proof amounts.
-   * @returns An object mapping trusted mint URLs to their balances
-   */
-  async getTrustedBalances(): Promise<{ [mintUrl: string]: number }> {
-    const balances = await this.getBalances();
-    const trustedMints = await this.mintService.getAllTrustedMints();
-    const trustedUrls = new Set(trustedMints.map((m) => m.mintUrl));
-
-    const trustedBalances: { [mintUrl: string]: number } = {};
-    for (const [mintUrl, balance] of Object.entries(balances)) {
-      if (trustedUrls.has(mintUrl)) {
-        trustedBalances[mintUrl] = balance;
-      }
-    }
-    return trustedBalances;
-  }
-
-  /**
-   * Gets detailed balance breakdown for a single mint.
+   * Gets the balance breakdown for a single mint.
    * @param mintUrl - The URL of the mint
    * @returns Balance breakdown with ready, reserved, and total amounts
    */
-  async getBalanceBreakdown(mintUrl: string): Promise<BalanceBreakdown> {
+  async getBalance(mintUrl: string): Promise<BalanceBreakdown> {
     if (!mintUrl || mintUrl.trim().length === 0) {
       throw new ProofValidationError('mintUrl is required');
     }
@@ -329,10 +282,10 @@ export class ProofService {
   }
 
   /**
-   * Gets detailed balance breakdown for all mints.
+   * Gets balance breakdowns for all mints.
    * @returns An object mapping mint URLs to their balance breakdowns
    */
-  async getBalancesBreakdown(): Promise<BalancesBreakdownByMint> {
+  async getBalances(): Promise<BalancesBreakdownByMint> {
     const proofs = await this.getAllReadyProofs();
     const balances: BalancesBreakdownByMint = {};
     for (const proof of proofs) {
@@ -350,11 +303,11 @@ export class ProofService {
   }
 
   /**
-   * Gets detailed balance breakdown for trusted mints only.
+   * Gets balance breakdowns for trusted mints only.
    * @returns An object mapping trusted mint URLs to their balance breakdowns
    */
-  async getTrustedBalancesBreakdown(): Promise<BalancesBreakdownByMint> {
-    const balances = await this.getBalancesBreakdown();
+  async getTrustedBalances(): Promise<BalancesBreakdownByMint> {
+    const balances = await this.getBalances();
     const trustedMints = await this.mintService.getAllTrustedMints();
     const trustedUrls = new Set(trustedMints.map((m) => m.mintUrl));
 

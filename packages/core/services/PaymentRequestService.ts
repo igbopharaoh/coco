@@ -194,7 +194,7 @@ export class PaymentRequestService {
   }
 
   private async findMatchingMints(paymentRequest: PaymentRequest): Promise<string[]> {
-    const balances = await this.proofService.getTrustedBalancesBreakdown();
+    const balances = await this.proofService.getTrustedBalances();
     const amount = paymentRequest.amount ?? 0;
     const mintRequirement = paymentRequest.mints;
     const matchingMints: string[] = [];

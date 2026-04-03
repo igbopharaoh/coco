@@ -121,8 +121,7 @@ describe('Pause/Resume Integration Test', () => {
     await sleep(3000);
 
     // Should still work
-    const balances = await manager.wallet.getBalances();
-    const balance = balances[mintUrl] || 0;
+    const balance = (await manager.wallet.getBalance(mintUrl)).ready;
     console.log('Balance after multiple cycles:', balance);
   }, 20000);
 
@@ -152,8 +151,7 @@ describe('Pause/Resume Integration Test', () => {
     await sleep(5000);
 
     // Should still work normally
-    const balances = await manager.wallet.getBalances();
-    const balance = balances[mintUrl] || 0;
+    const balance = (await manager.wallet.getBalance(mintUrl)).ready;
     expect(balance).toBeGreaterThanOrEqual(0);
     console.log('Balance after resume without pause:', balance);
   }, 20000);

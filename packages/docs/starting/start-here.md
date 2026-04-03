@@ -17,6 +17,7 @@ const coco = await initializeCoco({ repo, seedGetter });
 
 // After initialization you can start to use your coco wallet
 const balances = await coco.wallet.getBalances();
+console.log(balances);
 ```
 
 For lifecycle-oriented operation flows, use `coco.ops.send`, `coco.ops.receive`,

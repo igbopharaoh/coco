@@ -122,5 +122,16 @@ The existing derived-data hooks remain available for balance and history views.
 import { usePaginatedHistory, useTrustedBalance } from '@cashu/coco-react';
 
 const { history, loadMore, goToPage, refresh, hasMore, isFetching } = usePaginatedHistory(50);
-const { balance } = useTrustedBalance();
+const { balances, total } = useTrustedBalance();
+```
+
+## useTrustedBalance
+
+Returns balance breakdowns only for trusted mints plus an aggregate total. This
+hook depends on `ManagerProvider`.
+
+```tsx
+import { useTrustedBalance } from '@cashu/coco-react';
+
+const { balances, total } = useTrustedBalance();
 ```

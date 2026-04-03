@@ -1,41 +1,40 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useManager } from '../contexts/ManagerContext';
-import { useMints } from '../contexts/MintContext';
-import type { BalancesBreakdownByMint } from '@cashu/coco-core';
+import type { BalanceBreakdown, BalancesBreakdownByMint } from '@cashu/coco-core';
 
 export type TrustedBalanceValue = {
-  [mintUrl: string]: number;
-  total: number;
+  balances: BalancesBreakdownByMint;
+  total: BalanceBreakdown;
 };
+
+const EMPTY_BALANCE: BalanceBreakdown = { ready: 0, reserved: 0, total: 0 };
+
+function getTotalBalance(balances: BalancesBreakdownByMint): BalanceBreakdown {
+  return Object.values(balances).reduce(
+    (total, balance) => ({
+      ready: total.ready + balance.ready,
+      reserved: total.reserved + balance.reserved,
+      total: total.total + balance.total,
+    }),
+    EMPTY_BALANCE,
+  );
+}
 
 /**
  * Hook that returns balances only for trusted mints.
- * Returns per-mint balances and a total across all trusted mints.
+ * Returns per-mint balance breakdowns and a total across all trusted mints.
  */
 const useTrustedBalance = () => {
-  const [balance, setBalance] = useState<TrustedBalanceValue>({ total: 0 });
+  const [balances, setBalances] = useState<BalancesBreakdownByMint>({});
   const manager = useManager();
-  const { trustedMints } = useMints();
 
   const refreshBalance = useCallback(async () => {
     try {
-      const allBalances: BalancesBreakdownByMint = await manager.wallet.getBalancesBreakdown();
-      const trustedMintUrls = new Set(trustedMints.map((m) => m.mintUrl));
-
-      const trustedBalances: TrustedBalanceValue = { total: 0 };
-
-      for (const [mintUrl, breakdown] of Object.entries(allBalances || {})) {
-        if (trustedMintUrls.has(mintUrl)) {
-          trustedBalances[mintUrl] = breakdown.ready;
-          trustedBalances.total += breakdown.ready;
-        }
-      }
-
-      setBalance(trustedBalances);
+      setBalances(await manager.wallet.getTrustedBalances());
     } catch (error) {
       console.error(error);
     }
-  }, [manager, trustedMints]);
+  }, [manager]);
 
   useEffect(() => {
     refreshBalance();
@@ -53,7 +52,7 @@ const useTrustedBalance = () => {
     };
   }, [manager, refreshBalance]);
 
-  return { balance };
+  return { balances, total: getTotalBalance(balances) };
 };
 
 export default useTrustedBalance;

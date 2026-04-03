@@ -1,10 +1,9 @@
 import { createContext, useContext } from 'react';
+import type { BalanceBreakdown, BalancesBreakdownByMint } from '@cashu/coco-core';
 
 export type BalanceContextValue = {
-  balance: {
-    [mintUrl: string]: number;
-    total: number;
-  };
+  balances: BalancesBreakdownByMint;
+  total: BalanceBreakdown;
 };
 
 export const BalanceCtx = createContext<BalanceContextValue | undefined>(undefined);

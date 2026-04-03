@@ -1,17 +1,29 @@
 import { useEffect, useState } from 'react';
+import type { BalanceBreakdown, BalancesBreakdownByMint } from '@cashu/coco-core';
 import { useManager } from '../contexts/ManagerContext';
 import { BalanceCtx, type BalanceContextValue } from '../contexts/BalanceContext';
 
+const EMPTY_BALANCE: BalanceBreakdown = { ready: 0, reserved: 0, total: 0 };
+
+function getTotalBalance(balances: BalancesBreakdownByMint): BalanceBreakdown {
+  return Object.values(balances).reduce(
+    (total, balance) => ({
+      ready: total.ready + balance.ready,
+      reserved: total.reserved + balance.reserved,
+      total: total.total + balance.total,
+    }),
+    EMPTY_BALANCE,
+  );
+}
+
 const useBalance = (): BalanceContextValue => {
-  const [balance, setBalance] = useState<BalanceContextValue['balance']>({ total: 0 });
+  const [balances, setBalances] = useState<BalancesBreakdownByMint>({});
   const manager = useManager();
 
   useEffect(() => {
     async function getBalance() {
       try {
-        const bal = await manager.wallet.getBalances();
-        const total = Object.values(bal || {}).reduce((acc, cur) => acc + cur, 0);
-        setBalance({ ...(bal || {}), total });
+        setBalances(await manager.wallet.getBalances());
       } catch (error) {
         console.error(error);
       }
@@ -29,7 +41,7 @@ const useBalance = (): BalanceContextValue => {
     };
   }, [manager]);
 
-  return { balance };
+  return { balances, total: getTotalBalance(balances) };
 };
 
 export const BalanceProvider = ({ children }: { children: React.ReactNode }) => (

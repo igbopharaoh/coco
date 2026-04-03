@@ -66,6 +66,7 @@ type SendHistoryUpdatedPayload = {
 };
 
 type PreparedMintOperation = Awaited<ReturnType<Manager['ops']['mint']['prepare']>>;
+type ReadyBalancesByMint = { [mintUrl: string]: number };
 
 const watcherTestSubscriptions = {
   slowPollingIntervalMs: 50,
@@ -106,6 +107,13 @@ function waitForSendHistoryState(
     }
     return true;
   });
+}
+
+async function getReadyBalances(manager: Manager): Promise<ReadyBalancesByMint> {
+  const balances = await manager.wallet.getBalances();
+  return Object.fromEntries(
+    Object.entries(balances).map(([mintUrl, balance]) => [mintUrl, balance.ready]),
+  );
 }
 
 async function prepareMintOperation(
@@ -351,7 +359,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
 
           await mgr.mint.addMint(mintUrl, { trusted: true });
 
-          const initialBalance = await mgr.wallet.getBalances();
+          const initialBalance = await getReadyBalances(mgr);
           expect(initialBalance[mintUrl] || 0).toBe(0);
 
           const pendingEventPromise = waitForEvent<{
@@ -384,7 +392,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
           expect(finalizedEvent.mintUrl).toBe(mintUrl);
           expect(finalizedEvent.operation.quoteId).toBe(pendingMint.quoteId);
 
-          const balance = await mgr.wallet.getBalances();
+          const balance = await getReadyBalances(mgr);
           expect(balance[mintUrl] || 0).toBeGreaterThanOrEqual(100);
         } finally {
           if (mgr) {
@@ -418,7 +426,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
           expect(paidMint?.quoteId).toBe(pendingMint.quoteId);
           await executeMintOperation(mgr!, pendingMint.id);
 
-          const balance = await mgr.wallet.getBalances();
+          const balance = await getReadyBalances(mgr);
           expect(balance[mintUrl] || 0).toBeGreaterThanOrEqual(50);
         } finally {
           if (mgr) {
@@ -456,7 +464,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
       });
 
       it('should send tokens and update balance', async () => {
-        const initialBalance = await mgr!.wallet.getBalances();
+        const initialBalance = await getReadyBalances(mgr!);
         const initialAmount = initialBalance[mintUrl] || 0;
         expect(initialAmount).toBeGreaterThanOrEqual(200);
 
@@ -478,7 +486,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
         expect(token.mint).toBe(mintUrl);
         expect(token.proofs.length).toBeGreaterThan(0);
 
-        const balanceAfterSend = await mgr!.wallet.getBalances();
+        const balanceAfterSend = await getReadyBalances(mgr!);
         const amountAfterSend = balanceAfterSend[mintUrl] || 0;
         expect(amountAfterSend).toBeLessThan(initialAmount);
       });
@@ -521,14 +529,14 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
       });
 
       it('should receive tokens and update balance', async () => {
-        const initialBalance = await mgr!.wallet.getBalances();
+        const initialBalance = await getReadyBalances(mgr!);
         const initialAmount = initialBalance[mintUrl] || 0;
 
         const sendAmount = 30;
         const preparedSend = await mgr!.ops.send.prepare({ mintUrl, amount: sendAmount });
         const { token } = await mgr!.ops.send.execute(preparedSend.id);
 
-        const balanceAfterSend = await mgr!.wallet.getBalances();
+        const balanceAfterSend = await getReadyBalances(mgr!);
         const amountAfterSend = balanceAfterSend[mintUrl] || 0;
 
         const receivePromise = new Promise((resolve) => {
@@ -542,7 +550,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
         await mgr!.wallet.receive(token);
         await receivePromise;
 
-        const balanceAfterReceive = await mgr!.wallet.getBalances();
+        const balanceAfterReceive = await getReadyBalances(mgr!);
         const amountAfterReceive = balanceAfterReceive[mintUrl] || 0;
         expect(amountAfterReceive).toBeGreaterThan(amountAfterSend);
       });
@@ -552,7 +560,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
         const preparedSend = await mgr!.ops.send.prepare({ mintUrl, amount: sendAmount });
         const { token } = await mgr!.ops.send.execute(preparedSend.id);
 
-        const balances = await mgr!.wallet.getBalances();
+        const balances = await getReadyBalances(mgr!);
         const preBalance = balances[mintUrl]!;
 
         const prepOp = await mgr!.ops.receive.prepare({ token });
@@ -564,7 +572,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
         }, 0);
         expect(op.state).toBe('finalized');
 
-        const balances2 = await mgr!.wallet.getBalances();
+        const balances2 = await getReadyBalances(mgr!);
         expect(balances2[mintUrl]).toBeGreaterThan(preBalance);
 
         expect(op.amount).toBe(tokenAmount);
@@ -578,12 +586,12 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
 
         const encodedToken = getEncodedToken(token);
 
-        const balanceBeforeReceive = await mgr!.wallet.getBalances();
+        const balanceBeforeReceive = await getReadyBalances(mgr!);
         const amountBeforeReceive = balanceBeforeReceive[mintUrl] || 0;
 
         await mgr!.wallet.receive(encodedToken);
 
-        const balanceAfterReceive = await mgr!.wallet.getBalances();
+        const balanceAfterReceive = await getReadyBalances(mgr!);
         const amountAfterReceive = balanceAfterReceive[mintUrl] || 0;
         expect(amountAfterReceive).toBeGreaterThan(amountBeforeReceive);
       });
@@ -608,7 +616,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
       });
 
       it('should handle multiple send/receive operations', async () => {
-        const initialBalance = await mgr!.wallet.getBalances();
+        const initialBalance = await getReadyBalances(mgr!);
         const initialAmount = initialBalance[mintUrl] || 0;
 
         const amounts = [10, 20, 15];
@@ -620,7 +628,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
           tokens.push(token);
         }
 
-        const balanceAfterSends = await mgr!.wallet.getBalances();
+        const balanceAfterSends = await getReadyBalances(mgr!);
         const amountAfterSends = balanceAfterSends[mintUrl] || 0;
         expect(amountAfterSends).toBeLessThan(initialAmount - amounts.reduce((a, b) => a + b, 0));
 
@@ -628,7 +636,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
           await mgr!.wallet.receive(token);
         }
 
-        const finalBalance = await mgr!.wallet.getBalances();
+        const finalBalance = await getReadyBalances(mgr!);
         const finalAmount = finalBalance[mintUrl] || 0;
         expect(finalAmount).toBeGreaterThanOrEqual(
           initialAmount - amounts.reduce((a, b) => a + b, 0),
@@ -774,7 +782,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
 
       it('should execute a melt operation (may skip swap if exact amount)', async () => {
         const invoice = createFakeInvoice(20);
-        const balanceBefore = await mgr!.wallet.getBalanceBreakdown(mintUrl);
+        const balanceBefore = await mgr!.wallet.getBalance(mintUrl);
         const prepared = await mgr!.ops.melt.prepare({
           mintUrl,
           method: 'bolt11',
@@ -784,7 +792,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
         expect(prepared.quoteId).toBeDefined();
         expect(prepared.amount).toBeGreaterThan(0);
 
-        const balanceAfterPrepare = await mgr!.wallet.getBalanceBreakdown(mintUrl);
+        const balanceAfterPrepare = await mgr!.wallet.getBalance(mintUrl);
         expect(balanceAfterPrepare.reserved).toBeGreaterThan(0);
         expect(balanceAfterPrepare.total).toBe(balanceBefore.total);
 
@@ -803,12 +811,9 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
         };
         expect(settlement.effectiveFee).toBeDefined();
 
-        const balanceAfterExecute = await mgr!.wallet.getBalanceBreakdown(mintUrl);
+        const balanceAfterExecute = await mgr!.wallet.getBalance(mintUrl);
         const expectedTotal =
-          balanceBefore.total -
-          settlement.amount -
-          settlement.swap_fee -
-          settlement.effectiveFee!;
+          balanceBefore.total - settlement.amount - settlement.swap_fee - settlement.effectiveFee!;
 
         expect(balanceAfterExecute.reserved).toBe(0);
         expect(balanceAfterExecute.total).toBe(expectedTotal);
@@ -1074,14 +1079,14 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
           operationId = payload.operationId;
         });
 
-        const balanceBefore = await mgr!.wallet.getBalances();
+        const balanceBefore = await getReadyBalances(mgr!);
         const amountBefore = balanceBefore[mintUrl] || 0;
 
         const sendAmount = 40;
         const preparedSend = await mgr!.ops.send.prepare({ mintUrl, amount: sendAmount });
         await mgr!.ops.send.execute(preparedSend.id);
 
-        const balanceAfterSend = await mgr!.wallet.getBalances();
+        const balanceAfterSend = await getReadyBalances(mgr!);
         const amountAfterSend = balanceAfterSend[mintUrl] || 0;
 
         // Balance should be lower after send
@@ -1105,7 +1110,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
         expect(operation!.state).toBe('rolled_back');
 
         // Balance should be restored (minus fees for swap if any)
-        const balanceAfterRollback = await mgr!.wallet.getBalances();
+        const balanceAfterRollback = await getReadyBalances(mgr!);
         const amountAfterRollback = balanceAfterRollback[mintUrl] || 0;
         expect(amountAfterRollback).toBeGreaterThan(amountAfterSend);
       });
@@ -1515,7 +1520,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
 
           await mgr.mint.addMint(mintUrl, { trusted: true });
 
-          const initialBalance = await mgr.wallet.getBalances();
+          const initialBalance = await getReadyBalances(mgr);
           expect(initialBalance[mintUrl] || 0).toBe(0);
 
           const finalizedPromise = waitForEvent<{
@@ -1529,7 +1534,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
           expect(finalized.operationId).toBe(pendingMint.id);
           expect(finalized.operation.amount).toBe(150);
 
-          const balance = await mgr.wallet.getBalances();
+          const balance = await getReadyBalances(mgr);
           expect(balance[mintUrl] || 0).toBeGreaterThanOrEqual(150);
         } finally {
           if (mgr) {
@@ -1557,7 +1562,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
 
           await mintAmount(mgr!, mintUrl, 100);
 
-          const balance = await mgr.wallet.getBalances();
+          const balance = await getReadyBalances(mgr);
           expect(balance[mintUrl] || 0).toBeGreaterThanOrEqual(100);
         } finally {
           if (mgr) {
@@ -1649,7 +1654,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
             logger,
           });
 
-          const initialBalance = await mgr.wallet.getBalances();
+          const initialBalance = await getReadyBalances(mgr);
           expect(initialBalance[mintUrl] || 0).toBe(0);
 
           await mgr.mint.addMint(mintUrl, { trusted: true });
@@ -1657,7 +1662,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
           const pendingMint = await mintAmount(mgr!, mintUrl, 500);
           expect(pendingMint.amount).toBe(500);
 
-          const balanceAfterMint = await mgr.wallet.getBalances();
+          const balanceAfterMint = await getReadyBalances(mgr);
           expect(balanceAfterMint[mintUrl] || 0).toBeGreaterThanOrEqual(500);
 
           const sendAmount = 100;
@@ -1665,13 +1670,13 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
           const { token: token1 } = await mgr!.ops.send.execute(preparedSend1.id);
           expect(token1.proofs.length).toBeGreaterThan(0);
 
-          const balanceAfterSend = await mgr.wallet.getBalances();
+          const balanceAfterSend = await getReadyBalances(mgr);
           const amountAfterSend = balanceAfterSend[mintUrl] || 0;
           expect(amountAfterSend).toBeLessThan(balanceAfterMint[mintUrl] || 0);
 
           await mgr.wallet.receive(token1);
 
-          const balanceAfterReceive = await mgr.wallet.getBalances();
+          const balanceAfterReceive = await getReadyBalances(mgr);
           const amountAfterReceive = balanceAfterReceive[mintUrl] || 0;
           expect(amountAfterReceive).toBeGreaterThan(amountAfterSend);
 
@@ -1679,7 +1684,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
           const { token: token2 } = await mgr!.ops.send.execute(preparedSend2.id);
           await mgr.wallet.receive(token2);
 
-          const finalBalance = await mgr.wallet.getBalances();
+          const finalBalance = await getReadyBalances(mgr);
           expect(finalBalance[mintUrl] || 0).toBeGreaterThanOrEqual(400);
         } finally {
           if (mgr) {
@@ -2092,14 +2097,14 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
         };
 
         // Get balance before receiving
-        const balanceBefore = await mgr!.wallet.getBalances();
+        const balanceBefore = await getReadyBalances(mgr!);
         const amountBefore = balanceBefore[mintUrl] || 0;
 
         // Receive the P2PK token - this should automatically sign it
         await mgr!.wallet.receive(p2pkToken);
 
         // Verify balance increased
-        const balanceAfter = await mgr!.wallet.getBalances();
+        const balanceAfter = await getReadyBalances(mgr!);
         const amountAfter = balanceAfter[mintUrl] || 0;
         expect(amountAfter).toBeGreaterThan(amountBefore);
         expect(amountAfter - amountBefore).toBeGreaterThanOrEqual(sendAmount - 10); // Allow for fees
@@ -2155,14 +2160,14 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
         };
 
         // Get balance before receiving
-        const balanceBefore = await mgr!.wallet.getBalances();
+        const balanceBefore = await getReadyBalances(mgr!);
         const amountBefore = balanceBefore[mintUrl] || 0;
 
         // Receive the P2PK token - this should automatically sign it
         await mgr!.wallet.receive(p2pkToken);
 
         // Verify balance increased
-        const balanceAfter = await mgr!.wallet.getBalances();
+        const balanceAfter = await getReadyBalances(mgr!);
         const amountAfter = balanceAfter[mintUrl] || 0;
         expect(amountAfter).toBeGreaterThan(amountBefore);
         expect(amountAfter - amountBefore).toBeGreaterThanOrEqual(sendAmount - 10); // Allow for fees
@@ -2218,7 +2223,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
         const recipientKeypair = await mgr!.keyring.generateKeyPair();
         expect(recipientKeypair.publicKeyHex).toBeDefined();
 
-        const balanceBefore = await mgr!.wallet.getBalances();
+        const balanceBefore = await getReadyBalances(mgr!);
         const amountBefore = balanceBefore[mintUrl] || 0;
 
         // Send P2PK locked tokens using the new API
@@ -2242,7 +2247,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
         expect(parsedSecret[1].data).toBe(recipientKeypair.publicKeyHex);
 
         // Balance should have decreased
-        const balanceAfter = await mgr!.wallet.getBalances();
+        const balanceAfter = await getReadyBalances(mgr!);
         const amountAfter = balanceAfter[mintUrl] || 0;
         expect(amountAfter).toBeLessThan(amountBefore);
 
@@ -2250,7 +2255,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
         await mgr!.wallet.receive(token);
 
         // Balance should be restored (minus fees)
-        const balanceFinal = await mgr!.wallet.getBalances();
+        const balanceFinal = await getReadyBalances(mgr!);
         const amountFinal = balanceFinal[mintUrl] || 0;
         expect(amountFinal).toBeGreaterThan(amountAfter);
       });
@@ -2382,13 +2387,13 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
           proofs: p2pkProofs,
         };
 
-        const balanceBefore = await mgr!.wallet.getBalances();
+        const balanceBefore = await getReadyBalances(mgr!);
         const amountBefore = balanceBefore[mintUrl] || 0;
 
         // Receive all P2PK proofs at once
         await mgr!.wallet.receive(p2pkToken);
 
-        const balanceAfter = await mgr!.wallet.getBalances();
+        const balanceAfter = await getReadyBalances(mgr!);
         const amountAfter = balanceAfter[mintUrl] || 0;
         expect(amountAfter - amountBefore).toBeGreaterThanOrEqual(50); // Allow for fees
       });
@@ -2432,7 +2437,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
           expect(toBeSweptProofs.length).toBeGreaterThan(0);
 
           // Verify balance before sweep
-          const balanceBefore = await mgr.wallet.getBalances();
+          const balanceBefore = await getReadyBalances(mgr);
           expect(balanceBefore[mintUrl] || 0).toBe(0);
 
           // Listen for proofs:saved events
@@ -2447,7 +2452,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
           await mgr.wallet.sweep(mintUrl, toBeSweptSeed);
 
           // Verify balance increased (allowing for fees)
-          const balanceAfter = await mgr.wallet.getBalances();
+          const balanceAfter = await getReadyBalances(mgr);
           expect(balanceAfter[mintUrl] || 0).toBeGreaterThan(0);
           expect(balanceAfter[mintUrl] || 0).toBeLessThanOrEqual(100);
           expect(balanceAfter[mintUrl] || 0).toBeGreaterThanOrEqual(95); // Allow up to 5 sat fee
@@ -2564,7 +2569,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
         const parsed = await mgr!.paymentRequests.parse(encoded);
         expect(parsed.transport.type).toBe('inband');
 
-        const balanceBefore = await mgr!.wallet.getBalances();
+        const balanceBefore = await getReadyBalances(mgr!);
         const amountBefore = balanceBefore[mintUrl] || 0;
 
         let receivedToken: Token | undefined;
@@ -2584,7 +2589,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
         expect(tokenAmount).toBeGreaterThanOrEqual(30);
 
         // Balance should have decreased
-        const balanceAfter = await mgr!.wallet.getBalances();
+        const balanceAfter = await getReadyBalances(mgr!);
         const amountAfter = balanceAfter[mintUrl] || 0;
         expect(amountAfter).toBeLessThan(amountBefore);
       });
@@ -2691,9 +2696,9 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
         expect(sentToken).toBeDefined();
 
         // The token should be receivable (simulate receiver getting the token)
-        const balanceBefore = await mgr!.wallet.getBalances();
+        const balanceBefore = await getReadyBalances(mgr!);
         await mgr!.wallet.receive(sentToken!);
-        const balanceAfter = await mgr!.wallet.getBalances();
+        const balanceAfter = await getReadyBalances(mgr!);
 
         // Balance should increase after receiving
         expect((balanceAfter[mintUrl] || 0) - (balanceBefore[mintUrl] || 0)).toBeGreaterThan(0);

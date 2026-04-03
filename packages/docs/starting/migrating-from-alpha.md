@@ -123,6 +123,17 @@ Removed `WalletApi` compatibility wrappers:
 - `wallet.preparePaymentRequestTransaction()` -> `manager.paymentRequests.prepare()`
 - `wallet.handle*PaymentRequest()` -> `manager.paymentRequests.execute()`
 
+Breaking `WalletApi` balance changes:
+
+- `wallet.getBalances()` now returns `BalancesBreakdownByMint` instead of a
+  plain `{ [mintUrl]: number }` map
+- `wallet.getBalance(mintUrl)` is the single-mint API and returns
+  `BalanceBreakdown`
+- `wallet.getTrustedBalances()` returns trusted mint breakdowns
+- `wallet.getBalanceBreakdown()`, `wallet.getBalancesBreakdown()`, and
+  `wallet.getTrustedBalancesBreakdown()` were removed in favor of the shorter
+  canonical names above
+
 Use these forms after migrating:
 
 ```ts
@@ -135,6 +146,10 @@ await manager.ops.melt.prepare({
   method: 'bolt11',
   methodData: { invoice },
 });
+
+const balance = await manager.wallet.getBalance(mintUrl);
+const balances = await manager.wallet.getBalances();
+const trustedBalances = await manager.wallet.getTrustedBalances();
 ```
 
 Notes:

@@ -94,6 +94,7 @@ await manager.ops.mint.execute(pendingMint.id);
 // Check balances
 const balances = await manager.wallet.getBalances();
 console.log('balances', balances);
+console.log('ready balance', balances['https://nofees.testnut.cashu.space']?.ready ?? 0);
 ```
 
 ### Watchers & processors (optional)
@@ -206,10 +207,9 @@ In-memory reference implementations are provided under `repositories/memory/` fo
 ### WalletApi
 
 - `receive(token: Token | string): Promise<void>`
-- `getBalances(): Promise<{ [mintUrl: string]: number }>`
-- `getBalanceBreakdown(mintUrl: string): Promise<BalanceBreakdown>`
-- `getBalancesBreakdown(): Promise<BalancesBreakdownByMint>`
-- `getTrustedBalancesBreakdown(): Promise<BalancesBreakdownByMint>`
+- `getBalance(mintUrl: string): Promise<BalanceBreakdown>`
+- `getBalances(): Promise<BalancesBreakdownByMint>`
+- `getTrustedBalances(): Promise<BalancesBreakdownByMint>`
 - `restore(mintUrl: string): Promise<void>`
 - `sweep(mintUrl: string, bip39seed: Uint8Array): Promise<void>`
 - `decodeToken(tokenString: string, mintUrl?: string): Promise<Token>`
