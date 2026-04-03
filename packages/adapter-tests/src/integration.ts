@@ -774,6 +774,7 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
 
       it('should execute a melt operation (may skip swap if exact amount)', async () => {
         const invoice = createFakeInvoice(20);
+        const balanceBefore = await mgr!.wallet.getBalanceBreakdown(mintUrl);
         const prepared = await mgr!.ops.melt.prepare({
           mintUrl,
           method: 'bolt11',
@@ -783,8 +784,10 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
         expect(prepared.quoteId).toBeDefined();
         expect(prepared.amount).toBeGreaterThan(0);
 
-        const balanceBefore = await mgr!.wallet.getBalances();
-        const balanceBeforeAmount = balanceBefore[mintUrl] || 0;
+        const balanceAfterPrepare = await mgr!.wallet.getBalanceBreakdown(mintUrl);
+        expect(balanceAfterPrepare.reserved).toBeGreaterThan(0);
+        expect(balanceAfterPrepare.total).toBe(balanceBefore.total);
+
         const result = await mgr!.ops.melt.execute(prepared.id);
         expect(result.id).toBe(prepared.id);
         expect(result.quoteId).toBe(prepared.quoteId);
@@ -792,12 +795,23 @@ export async function runIntegrationTests<TRepositories extends Repositories = R
         const storedOperation = await repositories!.meltOperationRepository.getById(prepared.id);
         expect(storedOperation?.state).toBe(result.state);
 
-        const balanceAfter = await mgr!.wallet.getBalances();
-        const balanceAfterAmount = balanceAfter[mintUrl] || 0;
-        const amountWithFee = prepared.amount + prepared.fee_reserve;
+        expect(result.state).toBe('finalized');
 
-        // Balance should decrease by at least the amount + fee
-        expect(balanceAfterAmount).toBeLessThanOrEqual(balanceBeforeAmount - amountWithFee);
+        const settlement = result as typeof result & {
+          effectiveFee?: number;
+          swap_fee: number;
+        };
+        expect(settlement.effectiveFee).toBeDefined();
+
+        const balanceAfterExecute = await mgr!.wallet.getBalanceBreakdown(mintUrl);
+        const expectedTotal =
+          balanceBefore.total -
+          settlement.amount -
+          settlement.swap_fee -
+          settlement.effectiveFee!;
+
+        expect(balanceAfterExecute.reserved).toBe(0);
+        expect(balanceAfterExecute.total).toBe(expectedTotal);
       });
 
       it('should execute a melt operation by quote params', async () => {
