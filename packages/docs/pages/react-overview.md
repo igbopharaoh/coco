@@ -77,6 +77,8 @@ export function App() {
 `CocoCashuProvider` is a convenience wrapper that composes `ManagerProvider`,
 `MintProvider`, and `BalanceProvider`.
 
-For operation hooks, `ManagerProvider` is the only required context. The mint
-and balance providers are only needed for derived-data hooks such as
-`useTrustedBalance()` and `useMints()`.
+For operation hooks, `ManagerProvider` is the only required context.
+`useTrustedBalance()` also reads directly from the manager. `MintProvider` is
+only needed for mint-derived hooks such as `useMints()` and
+`useTrustedMints()`, and `BalanceProvider` is only needed for
+`useBalanceContext()`.

@@ -185,6 +185,12 @@ calling convention also changed:
 - The optional hook argument is initial-only. If a mounted component needs to
   switch to a different operation later, call `load(operationId)` explicitly.
 
+The derived balance surfaces also changed:
+
+- `useTrustedBalance()` now returns `{ balances, total }`
+- `balances[mintUrl]` is now a `BalanceBreakdown` object instead of a number
+- `useBalanceContext()` follows the same `{ balances, total }` shape
+
 Example send migration:
 
 ```tsx
@@ -203,8 +209,11 @@ const { prepare, execute, cancel, currentOperation, executeResult, status, error
   useSendOperation();
 
 await prepare({ mintUrl, amount });
-await execute();
-await cancel();
+if (userCanceled) {
+  await cancel();
+} else {
+  await execute();
+}
 ```
 
 Example receive migration:
