@@ -61,6 +61,12 @@ describe('PaymentRequestService', () => {
     methodData: {},
   });
 
+  const createBalanceBreakdown = (ready: number, reserved = 0) => ({
+    ready,
+    reserved,
+    total: ready + reserved,
+  });
+
   const createResolvedRequest = (
     options: {
       amount?: number;
@@ -119,8 +125,8 @@ describe('PaymentRequestService', () => {
 
     mockProofService = {
       getTrustedBalances: mock(async () => ({
-        [testMintUrl]: 1000,
-        [testMintUrl2]: 500,
+        [testMintUrl]: createBalanceBreakdown(1000),
+        [testMintUrl2]: createBalanceBreakdown(500),
       })),
     } as unknown as ProofService;
 
@@ -196,7 +202,7 @@ describe('PaymentRequestService', () => {
       (
         mockProofService.getTrustedBalances as unknown as ReturnType<typeof mock>
       ).mockImplementation(async () => ({
-        [testMintUrl]: 50,
+        [testMintUrl]: createBalanceBreakdown(50),
       }));
 
       const pr = new PaymentRequest([], 'request-id-6', 100, 'sat', [testMintUrl]);
