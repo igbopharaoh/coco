@@ -207,6 +207,38 @@ The derived balance surfaces also changed:
 - Each per-mint value is now a balance snapshot with
   `{ spendable, reserved, total }`
 - `useBalanceContext()` follows the same structured `balances` shape
+- This is a real return-shape break:
+  `const { balance } = useTrustedBalance()` becomes
+  `const { balances, refresh } = useTrustedBalance()`
+- Code that previously read `balance[mintUrl]` or `balance.total` must now read
+  `balances.byMint[mintUrl]?.total` and `balances.total.total`
+
+Example balance-hook migration:
+
+```tsx
+// before
+const { balance } = useTrustedBalance();
+const mintBalance = balance[mintUrl] ?? 0;
+const total = balance.total;
+
+// after
+const { balances, refresh } = useTrustedBalance();
+const mintBalance = balances.byMint[mintUrl]?.total ?? 0;
+const spendable = balances.byMint[mintUrl]?.spendable ?? 0;
+const total = balances.total.total;
+```
+
+Example balance-context migration:
+
+```tsx
+// before
+const { balance } = useBalanceContext();
+const total = balance.total;
+
+// after
+const { balances } = useBalanceContext();
+const total = balances.total.total;
+```
 
 Example send migration:
 

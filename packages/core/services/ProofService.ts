@@ -332,8 +332,7 @@ export class ProofService {
    * @returns An object mapping mint URLs to their balances
    */
   async getBalancesByMint(scope?: BalanceQuery): Promise<BalancesByMint> {
-    const requestedMintUrls =
-      scope?.mintUrls && scope.mintUrls.length > 0 ? Array.from(new Set(scope.mintUrls)) : undefined;
+    const requestedMintUrls = scope?.mintUrls ? Array.from(new Set(scope.mintUrls)) : undefined;
     const trustedMintUrls = scope?.trustedOnly
       ? new Set((await this.mintService.getAllTrustedMints()).map((mint) => mint.mintUrl))
       : undefined;

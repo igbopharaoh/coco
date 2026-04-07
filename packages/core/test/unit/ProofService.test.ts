@@ -737,6 +737,40 @@ describe('ProofService', () => {
       expect(proofRepo.getAllReadyProofs).not.toHaveBeenCalled();
     });
 
+    it('returns an empty snapshot for an explicit empty mint selection', async () => {
+      const originalGetReadyProofs = proofRepo.getReadyProofs.bind(proofRepo);
+      const originalGetAllReadyProofs = proofRepo.getAllReadyProofs.bind(proofRepo);
+
+      proofRepo.getReadyProofs = mock((mintUrl: string) => originalGetReadyProofs(mintUrl));
+      proofRepo.getAllReadyProofs = mock(() => originalGetAllReadyProofs());
+
+      const service = new ProofService(
+        counterService,
+        proofRepo,
+        walletService as any,
+        mintService as any,
+        keyRingService as any,
+        seedService,
+        undefined,
+        bus,
+      );
+
+      await proofRepo.saveProofs(mintUrl, [makeProof({ secret: 'empty-a1', amount: 100 })]);
+      await proofRepo.saveProofs(otherMintUrl, [
+        makeProof({ secret: 'empty-b1', amount: 200, mintUrl: otherMintUrl }),
+      ]);
+
+      await expect(service.getBalancesByMint({ mintUrls: [] })).resolves.toEqual({});
+      await expect(service.getBalanceTotal({ mintUrls: [] })).resolves.toEqual({
+        spendable: 0,
+        reserved: 0,
+        total: 0,
+      });
+
+      expect(proofRepo.getReadyProofs).not.toHaveBeenCalled();
+      expect(proofRepo.getAllReadyProofs).not.toHaveBeenCalled();
+    });
+
     it('returns canonical and legacy map views for all mints', async () => {
       const service = new ProofService(
         counterService,

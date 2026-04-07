@@ -29,14 +29,15 @@ const useBalances = (scope?: BalanceQuery) => {
   const [balances, setBalances] = useState<WalletBalancesValue>(EMPTY_BALANCES);
   const manager = useManager();
   const mintUrlsKey = scope?.mintUrls?.join('\0') ?? '';
+  const hasMintUrlsScope = scope?.mintUrls !== undefined;
   const trustedOnly = scope?.trustedOnly;
 
   const refresh = useCallback(async () => {
     try {
       const balanceScope: BalanceQuery | undefined =
-        mintUrlsKey || trustedOnly
+        hasMintUrlsScope || trustedOnly
           ? {
-              mintUrls: mintUrlsKey ? mintUrlsKey.split('\0') : undefined,
+              mintUrls: hasMintUrlsScope ? (mintUrlsKey ? mintUrlsKey.split('\0') : []) : undefined,
               trustedOnly,
             }
           : undefined;
@@ -46,7 +47,7 @@ const useBalances = (scope?: BalanceQuery) => {
     } catch (error) {
       console.error(error instanceof Error ? error : new Error(String(error)));
     }
-  }, [manager, mintUrlsKey, trustedOnly]);
+  }, [manager, hasMintUrlsScope, mintUrlsKey, trustedOnly]);
 
   useEffect(() => {
     void refresh();
