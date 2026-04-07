@@ -193,11 +193,11 @@ describe('PaymentRequestService', () => {
     });
 
     it('should return an empty payable mint list if no matching mints are found', async () => {
-      (
-        mockProofService.getBalancesByMint as unknown as ReturnType<typeof mock>
-      ).mockImplementation(async () => ({
-        [testMintUrl]: { spendable: 50, reserved: 0, total: 50 },
-      }));
+      (mockProofService.getBalancesByMint as unknown as ReturnType<typeof mock>).mockImplementation(
+        async () => ({
+          [testMintUrl]: { spendable: 50, reserved: 0, total: 50 },
+        }),
+      );
 
       const pr = new PaymentRequest([], 'request-id-6', 100, 'sat', [testMintUrl]);
       const encoded = pr.toEncodedRequest();

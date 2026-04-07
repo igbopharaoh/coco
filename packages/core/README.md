@@ -98,14 +98,8 @@ console.log('balances', balances);
 console.log('wallet total', total.total);
 
 // Inspect spendable vs reserved funds explicitly when needed
-console.log(
-  'spendable balance',
-  balances['https://nofees.testnut.cashu.space']?.spendable ?? 0,
-);
-console.log(
-  'reserved balance',
-  balances['https://nofees.testnut.cashu.space']?.reserved ?? 0,
-);
+console.log('spendable balance', balances['https://nofees.testnut.cashu.space']?.spendable ?? 0);
+console.log('reserved balance', balances['https://nofees.testnut.cashu.space']?.reserved ?? 0);
 ```
 
 ### Watchers & processors (optional)

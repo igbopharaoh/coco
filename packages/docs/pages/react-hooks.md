@@ -122,8 +122,14 @@ The existing derived-data hooks remain available for balance and history views.
 import { useBalances, usePaginatedHistory, useTrustedBalance } from '@cashu/coco-react';
 
 const { balances, refresh: refreshBalances } = useBalances();
-const { history, loadMore, goToPage, refresh: refreshHistory, hasMore, isFetching } =
-  usePaginatedHistory(50);
+const {
+  history,
+  loadMore,
+  goToPage,
+  refresh: refreshHistory,
+  hasMore,
+  isFetching,
+} = usePaginatedHistory(50);
 const { balances: trustedBalances } = useTrustedBalance();
 ```
 
