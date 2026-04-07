@@ -1,9 +1,13 @@
+import type { BalanceSnapshot, BalancesByMint } from '@cashu/coco-core';
 import { createContext, useContext } from 'react';
-import type { BalanceBreakdown, BalancesBreakdownByMint } from '@cashu/coco-core';
+
+export type WalletBalancesValue = {
+  byMint: BalancesByMint;
+  total: BalanceSnapshot;
+};
 
 export type BalanceContextValue = {
-  balances: BalancesBreakdownByMint;
-  total: BalanceBreakdown;
+  balances: WalletBalancesValue;
 };
 
 export const BalanceCtx = createContext<BalanceContextValue | undefined>(undefined);
