@@ -12,9 +12,16 @@ import type {
   TransactionService,
   TokenService,
 } from '@core/services';
-import type { BalanceBreakdown, BalancesBreakdownByMint } from '../types';
+import type {
+  BalanceBreakdown,
+  BalanceQuery,
+  BalanceSnapshot,
+  BalancesBreakdownByMint,
+  BalancesByMint,
+} from '../types';
 import type { ReceiveOperationService } from '../operations/receive/ReceiveOperationService';
 import type { Logger } from '../logging/Logger.ts';
+import { WalletBalancesApi } from './WalletBalancesApi.ts';
 
 export class WalletApi {
   private mintService: MintService;
@@ -25,6 +32,7 @@ export class WalletApi {
   private receiveOperationService: ReceiveOperationService;
   private readonly tokenService: TokenService;
   private readonly logger?: Logger;
+  readonly balances: WalletBalancesApi;
 
   constructor(
     mintService: MintService,
@@ -44,6 +52,7 @@ export class WalletApi {
     this.receiveOperationService = receiveOperationService;
     this.tokenService = tokenService;
     this.logger = logger;
+    this.balances = new WalletBalancesApi(proofService);
   }
 
   /**
@@ -56,30 +65,48 @@ export class WalletApi {
     return this.receiveOperationService.receive(token);
   }
 
-  /**
-   * Gets the balance breakdown for a single mint.
-   * @param mintUrl - The URL of the mint
-   * @returns Balance breakdown with ready, reserved, and total amounts
-   */
-  async getBalance(mintUrl: string): Promise<BalanceBreakdown> {
+  async getBalance(mintUrl: string): Promise<number> {
     return this.proofService.getBalance(mintUrl);
   }
 
-  /**
-   * Gets balance breakdowns for all mints.
-   * Shows ready (available), reserved (locked by operations), and total for each mint.
-   * @returns An object mapping mint URLs to their balance breakdowns
-   */
-  async getBalances(): Promise<BalancesBreakdownByMint> {
+  async getBalances(): Promise<{ [mintUrl: string]: number }> {
     return this.proofService.getBalances();
   }
 
-  /**
-   * Gets balance breakdowns for trusted mints only.
-   * @returns An object mapping trusted mint URLs to their balance breakdowns
-   */
-  async getTrustedBalances(): Promise<BalancesBreakdownByMint> {
+  async getTrustedBalances(): Promise<{ [mintUrl: string]: number }> {
     return this.proofService.getTrustedBalances();
+  }
+
+  async getSpendableBalance(mintUrl: string): Promise<number> {
+    return this.proofService.getSpendableBalance(mintUrl);
+  }
+
+  async getSpendableBalances(): Promise<{ [mintUrl: string]: number }> {
+    return this.proofService.getSpendableBalances();
+  }
+
+  async getTrustedSpendableBalances(): Promise<{ [mintUrl: string]: number }> {
+    return this.proofService.getTrustedSpendableBalances();
+  }
+
+  async getBalanceBreakdown(mintUrl: string): Promise<BalanceBreakdown> {
+    return this.proofService.getBalanceBreakdown(mintUrl);
+  }
+
+  async getBalancesBreakdown(): Promise<BalancesBreakdownByMint> {
+    return this.proofService.getBalancesBreakdown();
+  }
+
+  async getTrustedBalancesBreakdown(): Promise<BalancesBreakdownByMint> {
+    return this.proofService.getTrustedBalancesBreakdown();
+  }
+
+  async getBalancesByMint(scope?: BalanceQuery): Promise<BalancesByMint> {
+    return this.proofService.getBalancesByMint(scope);
+  }
+
+  async getBalanceTotal(scope?: BalanceQuery): Promise<BalanceSnapshot> {
+    return this.proofService.getBalanceTotal(scope);
   }
 
   // Restoration logic is delegated to WalletRestoreService

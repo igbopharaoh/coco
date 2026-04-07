@@ -61,12 +61,6 @@ describe('PaymentRequestService', () => {
     methodData: {},
   });
 
-  const createBalanceBreakdown = (ready: number, reserved = 0) => ({
-    ready,
-    reserved,
-    total: ready + reserved,
-  });
-
   const createResolvedRequest = (
     options: {
       amount?: number;
@@ -124,9 +118,9 @@ describe('PaymentRequestService', () => {
     } as unknown as SendOperationService;
 
     mockProofService = {
-      getTrustedBalances: mock(async () => ({
-        [testMintUrl]: createBalanceBreakdown(1000),
-        [testMintUrl2]: createBalanceBreakdown(500),
+      getBalancesByMint: mock(async () => ({
+        [testMintUrl]: { spendable: 1000, reserved: 0, total: 1000 },
+        [testMintUrl2]: { spendable: 500, reserved: 0, total: 500 },
       })),
     } as unknown as ProofService;
 
@@ -200,9 +194,9 @@ describe('PaymentRequestService', () => {
 
     it('should return an empty payable mint list if no matching mints are found', async () => {
       (
-        mockProofService.getTrustedBalances as unknown as ReturnType<typeof mock>
+        mockProofService.getBalancesByMint as unknown as ReturnType<typeof mock>
       ).mockImplementation(async () => ({
-        [testMintUrl]: createBalanceBreakdown(50),
+        [testMintUrl]: { spendable: 50, reserved: 0, total: 50 },
       }));
 
       const pr = new PaymentRequest([], 'request-id-6', 100, 'sat', [testMintUrl]);
