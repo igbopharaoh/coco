@@ -1,4 +1,4 @@
-import type { BalanceQuery, BalanceSnapshot } from '@cashu/coco-core';
+import type { BalanceQuery, BalanceSnapshot, BalancesByMint } from '@cashu/coco-core';
 import { useCallback, useEffect, useState } from 'react';
 import type { WalletBalancesValue } from '../contexts/BalanceContext';
 import { useManager } from '../contexts/ManagerContext';
@@ -12,6 +12,17 @@ const EMPTY_BALANCE_SNAPSHOT: BalanceSnapshot = {
 const EMPTY_BALANCES: WalletBalancesValue = {
   byMint: {},
   total: EMPTY_BALANCE_SNAPSHOT,
+};
+
+const getBalanceTotal = (byMint: BalancesByMint): BalanceSnapshot => {
+  return Object.values(byMint).reduce<BalanceSnapshot>(
+    (total, balance) => ({
+      spendable: total.spendable + balance.spendable,
+      reserved: total.reserved + balance.reserved,
+      total: total.total + balance.total,
+    }),
+    EMPTY_BALANCE_SNAPSHOT,
+  );
 };
 
 const useBalances = (scope?: BalanceQuery) => {
@@ -29,10 +40,8 @@ const useBalances = (scope?: BalanceQuery) => {
               trustedOnly,
             }
           : undefined;
-      const [byMint, total] = await Promise.all([
-        manager.wallet.balances.byMint(balanceScope),
-        manager.wallet.balances.total(balanceScope),
-      ]);
+      const byMint = await manager.wallet.balances.byMint(balanceScope);
+      const total = getBalanceTotal(byMint);
       setBalances({ byMint, total });
     } catch (error) {
       console.error(error instanceof Error ? error : new Error(String(error)));

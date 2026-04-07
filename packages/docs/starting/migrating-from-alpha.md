@@ -125,14 +125,23 @@ Removed `WalletApi` compatibility wrappers:
 
 Breaking `WalletApi` balance changes:
 
-- `wallet.getBalances()` now returns `BalancesBreakdownByMint` instead of a
-  plain `{ [mintUrl]: number }` map
-- `wallet.getBalance(mintUrl)` is the single-mint API and returns
-  `BalanceBreakdown`
-- `wallet.getTrustedBalances()` returns trusted mint breakdowns
+- Alpha balance APIs only exposed scalar totals such as
+  `wallet.getBalance(mintUrl)` and `wallet.getBalances()`
+- The current release line keeps those scalar helpers, but also adds a
+  canonical structured balance surface so apps can distinguish `spendable`,
+  `reserved`, and `total`
+- The preferred structured entrypoints are:
+  `wallet.balances.byMint(scope?)`,
+  `wallet.balances.total(scope?)`,
+  `wallet.getBalancesByMint(scope?)`, and
+  `wallet.getBalanceTotal(scope?)`
+- `wallet.getSpendableBalance()`,
+  `wallet.getSpendableBalances()`, and
+  `wallet.getTrustedSpendableBalances()` are explicit opt-in helpers for the
+  narrower spendable-only view
 - `wallet.getBalanceBreakdown()`, `wallet.getBalancesBreakdown()`, and
-  `wallet.getTrustedBalancesBreakdown()` were removed in favor of the shorter
-  canonical names above
+  `wallet.getTrustedBalancesBreakdown()` still exist as legacy compatibility
+  aliases using the older `ready/reserved/total` naming
 
 Use these forms after migrating:
 
@@ -147,6 +156,11 @@ await manager.ops.melt.prepare({
   methodData: { invoice },
 });
 
+const balancesByMint = await manager.wallet.balances.byMint();
+const trustedBalancesByMint = await manager.wallet.balances.byMint({ trustedOnly: true });
+const total = await manager.wallet.balances.total();
+
+// compatibility helpers still exist if you only want totals
 const balance = await manager.wallet.getBalance(mintUrl);
 const balances = await manager.wallet.getBalances();
 const trustedBalances = await manager.wallet.getTrustedBalances();
@@ -187,9 +201,12 @@ calling convention also changed:
 
 The derived balance surfaces also changed:
 
-- `useTrustedBalance()` now returns `{ balances, total }`
-- `balances[mintUrl]` is now a `BalanceBreakdown` object instead of a number
-- `useBalanceContext()` follows the same `{ balances, total }` shape
+- Alpha balance hooks exposed flat numeric balances only
+- `useBalances()` and `useTrustedBalance()` now return a structured result with
+  `balances.byMint[mintUrl]` and `balances.total`
+- Each per-mint value is now a balance snapshot with
+  `{ spendable, reserved, total }`
+- `useBalanceContext()` follows the same structured `balances` shape
 
 Example send migration:
 

@@ -332,19 +332,33 @@ export class ProofService {
    * @returns An object mapping mint URLs to their balances
    */
   async getBalancesByMint(scope?: BalanceQuery): Promise<BalancesByMint> {
-    const proofs = await this.getAllReadyProofs();
     const requestedMintUrls =
-      scope?.mintUrls && scope.mintUrls.length > 0 ? new Set(scope.mintUrls) : undefined;
+      scope?.mintUrls && scope.mintUrls.length > 0 ? Array.from(new Set(scope.mintUrls)) : undefined;
     const trustedMintUrls = scope?.trustedOnly
       ? new Set((await this.mintService.getAllTrustedMints()).map((mint) => mint.mintUrl))
       : undefined;
     const balances: BalancesByMint = {};
+    const scopedMintUrls = requestedMintUrls?.filter(
+      (mintUrl) => !trustedMintUrls || trustedMintUrls.has(mintUrl),
+    );
+    const proofs = scopedMintUrls
+      ? (
+          await Promise.all(
+            scopedMintUrls.map((mintUrl) => this.proofRepository.getReadyProofs(mintUrl)),
+          )
+        ).flat()
+      : trustedMintUrls
+        ? (
+            await Promise.all(
+              Array.from(trustedMintUrls).map((mintUrl) =>
+                this.proofRepository.getReadyProofs(mintUrl),
+              ),
+            )
+          ).flat()
+        : await this.getAllReadyProofs();
 
     for (const proof of proofs) {
       const mintUrl = proof.mintUrl;
-      if (requestedMintUrls && !requestedMintUrls.has(mintUrl)) {
-        continue;
-      }
       if (trustedMintUrls && !trustedMintUrls.has(mintUrl)) {
         continue;
       }
@@ -359,11 +373,8 @@ export class ProofService {
       balances[mintUrl] = balance;
     }
 
-    if (requestedMintUrls) {
-      for (const mintUrl of requestedMintUrls) {
-        if (trustedMintUrls && !trustedMintUrls.has(mintUrl)) {
-          continue;
-        }
+    if (scopedMintUrls) {
+      for (const mintUrl of scopedMintUrls) {
         balances[mintUrl] ??= this.emptyBalanceSnapshot();
       }
     }

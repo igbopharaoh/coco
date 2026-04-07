@@ -701,6 +701,42 @@ describe('ProofService', () => {
       });
     });
 
+    it('uses mint-scoped ready proof reads for scoped balance queries', async () => {
+      const originalGetReadyProofs = proofRepo.getReadyProofs.bind(proofRepo);
+      const originalGetAllReadyProofs = proofRepo.getAllReadyProofs.bind(proofRepo);
+
+      proofRepo.getReadyProofs = mock((mintUrl: string) => originalGetReadyProofs(mintUrl));
+      proofRepo.getAllReadyProofs = mock(() => originalGetAllReadyProofs());
+
+      const service = new ProofService(
+        counterService,
+        proofRepo,
+        walletService as any,
+        mintService as any,
+        keyRingService as any,
+        seedService,
+        undefined,
+        bus,
+      );
+
+      await proofRepo.saveProofs(mintUrl, [
+        makeProof({ secret: 'scope-a1', amount: 100 }),
+        makeProof({ secret: 'scope-a2', amount: 50 }),
+      ]);
+      await proofRepo.saveProofs(otherMintUrl, [
+        makeProof({ secret: 'scope-b1', amount: 200, mintUrl: otherMintUrl }),
+      ]);
+      await proofRepo.reserveProofs(mintUrl, ['scope-a1'], operationId);
+
+      await expect(service.getBalancesByMint({ mintUrls: [mintUrl] })).resolves.toEqual({
+        [mintUrl]: { spendable: 50, reserved: 100, total: 150 },
+      });
+
+      expect(proofRepo.getReadyProofs).toHaveBeenCalledTimes(1);
+      expect(proofRepo.getReadyProofs).toHaveBeenCalledWith(mintUrl);
+      expect(proofRepo.getAllReadyProofs).not.toHaveBeenCalled();
+    });
+
     it('returns canonical and legacy map views for all mints', async () => {
       const service = new ProofService(
         counterService,

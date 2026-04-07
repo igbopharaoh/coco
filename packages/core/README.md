@@ -375,7 +375,8 @@ From the package root:
 - Public APIs including `MintApi`, `WalletApi`, `AuthApi`, `PaymentRequestsApi`,
   `SubscriptionApi`, and the operation-oriented APIs
 - Models, services, operations, and plugin types
-- Types: `CoreProof`, `ProofState`, `BalanceBreakdown`, `BalancesBreakdownByMint`
+- Types: `CoreProof`, `ProofState`, `BalanceQuery`, `BalanceSnapshot`,
+  `BalancesByMint`, `BalanceBreakdown`, `BalancesBreakdownByMint`
 - Logging: `ConsoleLogger`, `Logger`
 - Helpers: `getEncodedToken`, `getDecodedToken`, `normalizeMintUrl`
 - Infrastructure helpers: `SubscriptionManager`, `WsConnectionManager`,
